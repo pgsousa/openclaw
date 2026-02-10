@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TOOL_GROUPS } from "../agents/tool-policy.js";
 import { parseDurationMs } from "../cli/parse-duration.js";
 import {
   GroupChatSchema,
@@ -150,11 +151,30 @@ export const SandboxPruneSchema = z
   .strict()
   .optional();
 
+const TOOL_POLICY_SUGGESTED_ENTRIES = Array.from(
+  new Set([
+    ...Object.keys(TOOL_GROUPS),
+    ...Object.values(TOOL_GROUPS).flat(),
+    // Expanded later against runtime plugin registrations.
+    "group:plugins",
+  ]),
+).toSorted((a, b) => a.localeCompare(b));
+
+const ToolPolicySuggestedEntrySchema =
+  TOOL_POLICY_SUGGESTED_ENTRIES.length > 0
+    ? z.enum(TOOL_POLICY_SUGGESTED_ENTRIES as [string, ...string[]])
+    : z.never();
+
+const ToolPolicyEntrySchema =
+  TOOL_POLICY_SUGGESTED_ENTRIES.length > 0
+    ? z.union([ToolPolicySuggestedEntrySchema, z.string()])
+    : z.string();
+
 const ToolPolicyBaseSchema = z
   .object({
-    allow: z.array(z.string()).optional(),
-    alsoAllow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
+    allow: z.array(ToolPolicyEntrySchema).optional(),
+    alsoAllow: z.array(ToolPolicyEntrySchema).optional(),
+    deny: z.array(ToolPolicyEntrySchema).optional(),
   })
   .strict();
 
@@ -223,9 +243,9 @@ export const ToolProfileSchema = z
 
 export const ToolPolicyWithProfileSchema = z
   .object({
-    allow: z.array(z.string()).optional(),
-    alsoAllow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
+    allow: z.array(ToolPolicyEntrySchema).optional(),
+    alsoAllow: z.array(ToolPolicyEntrySchema).optional(),
+    deny: z.array(ToolPolicyEntrySchema).optional(),
     profile: ToolProfileSchema,
   })
   .strict()
@@ -262,9 +282,9 @@ export const AgentSandboxSchema = z
 export const AgentToolsSchema = z
   .object({
     profile: ToolProfileSchema,
-    allow: z.array(z.string()).optional(),
-    alsoAllow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
+    allow: z.array(ToolPolicyEntrySchema).optional(),
+    alsoAllow: z.array(ToolPolicyEntrySchema).optional(),
+    deny: z.array(ToolPolicyEntrySchema).optional(),
     byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
     elevated: z
       .object({
@@ -477,9 +497,9 @@ export const AgentEntrySchema = z
 export const ToolsSchema = z
   .object({
     profile: ToolProfileSchema,
-    allow: z.array(z.string()).optional(),
-    alsoAllow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
+    allow: z.array(ToolPolicyEntrySchema).optional(),
+    alsoAllow: z.array(ToolPolicyEntrySchema).optional(),
+    deny: z.array(ToolPolicyEntrySchema).optional(),
     byProvider: z.record(z.string(), ToolPolicyWithProfileSchema).optional(),
     web: ToolsWebSchema,
     media: ToolsMediaSchema,

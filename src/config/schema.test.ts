@@ -101,4 +101,36 @@ describe("config schema", () => {
     expect(defaultsHint?.help).toContain("last");
     expect(listHint?.help).toContain("bluebubbles");
   });
+
+  it("includes tool policy suggestions in schema while still allowing free-form strings", () => {
+    const res = buildConfigSchema();
+    const schema = res.schema as { properties?: Record<string, unknown> };
+
+    const toolsNode = schema.properties?.tools as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    const allowNode = toolsNode?.properties?.allow as
+      | { items?: Record<string, unknown> }
+      | undefined;
+    const itemNode = allowNode?.items;
+    const variants = [
+      ...(Array.isArray(itemNode?.anyOf) ? itemNode.anyOf : []),
+      ...(Array.isArray(itemNode?.oneOf) ? itemNode.oneOf : []),
+      ...(Array.isArray(itemNode?.allOf) ? itemNode.allOf : []),
+    ] as Array<Record<string, unknown>>;
+
+    const hasSuggestedEntry = variants.some((entry) => {
+      const values = Array.isArray(entry.enum) ? entry.enum : [];
+      return values.includes("exec") || values.includes("group:fs");
+    });
+
+    const hasOpenString = variants.some((entry) => {
+      const type = entry.type;
+      const allowsString = type === "string" || (Array.isArray(type) && type.includes("string"));
+      return allowsString && !Array.isArray(entry.enum) && entry.const === undefined;
+    });
+
+    expect(hasSuggestedEntry).toBe(true);
+    expect(hasOpenString).toBe(true);
+  });
 });

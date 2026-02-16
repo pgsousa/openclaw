@@ -29,6 +29,12 @@ const AIOPS_ALLOWED_PATTERNS: RegExp[] = [
   /\bslack\b/,
 ];
 
+const AIOPS_DETERMINISTIC_CONTROL_PATTERNS: RegExp[] = [
+  /^\/?fix\s+[A-Za-z][A-Za-z0-9_.:-]{2,180}\s*$/i,
+  /^\/?(?:approve|accept)\s+[a-f0-9-]{8,}(?:\s+(?:allow|once|allow-once|allowonce|always|allow-always|allowalways|deny|reject|block))?\s*$/i,
+  /^\/?(?:approve|accept)\s+(?:allow|once|allow-once|allowonce|always|allow-always|allowalways|deny|reject|block)\s+[a-f0-9-]{8,}\s*$/i,
+];
+
 function normalizeText(value: string): string {
   return value
     .normalize("NFD")
@@ -40,6 +46,9 @@ function normalizeText(value: string): string {
 function isPromptAllowedForAiops(prompt: string): boolean {
   const trimmed = prompt.trim();
   if (!trimmed) {
+    return true;
+  }
+  if (AIOPS_DETERMINISTIC_CONTROL_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     return true;
   }
   if (trimmed.startsWith("/")) {

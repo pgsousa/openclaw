@@ -75,6 +75,33 @@ describe("domain policy evaluation", () => {
     ).toBe(false);
   });
 
+  it("allows deterministic fix/approve control commands used in aiops remediation", () => {
+    expect(
+      isPromptAllowedByDomainPolicy({
+        prompt: "fix OpenClawSyntheticOOM-1771268941",
+        policy,
+      }),
+    ).toBe(true);
+    expect(
+      isPromptAllowedByDomainPolicy({
+        prompt: "approve 72206b81-d1bd-4f58-8fb8-56f12f71dd94",
+        policy,
+      }),
+    ).toBe(true);
+    expect(
+      isPromptAllowedByDomainPolicy({
+        prompt: "/approve 72206b81-d1bd-4f58-8fb8-56f12f71dd94 allow-once",
+        policy,
+      }),
+    ).toBe(true);
+    expect(
+      isPromptAllowedByDomainPolicy({
+        prompt: "approve emergency oom patch",
+        policy,
+      }),
+    ).toBe(false);
+  });
+
   it("skips enforcement for inter_session/internal_system with external_user scope", () => {
     expect(
       shouldEnforceDomainPolicy({

@@ -156,6 +156,8 @@ function patchSlackConfigForAccount(
         slack: {
           ...cfg.channels?.slack,
           enabled: true,
+          // Keep bot-authored messages disabled by default to avoid cross-bot loops.
+          allowBots: cfg.channels?.slack?.allowBots ?? false,
           ...patch,
         },
       },
@@ -173,6 +175,8 @@ function patchSlackConfigForAccount(
           [accountId]: {
             ...cfg.channels?.slack?.accounts?.[accountId],
             enabled: cfg.channels?.slack?.accounts?.[accountId]?.enabled ?? true,
+            // Keep bot-authored messages disabled by default to avoid cross-bot loops.
+            allowBots: cfg.channels?.slack?.accounts?.[accountId]?.allowBots ?? false,
             ...patch,
           },
         },
@@ -194,7 +198,20 @@ function setSlackChannelAllowlist(
   accountId: string,
   channelKeys: string[],
 ): OpenClawConfig {
-  const channels = Object.fromEntries(channelKeys.map((key) => [key, { allow: true }]));
+  const existing = resolveSlackAccount({ cfg, accountId }).config.channels ?? {};
+  const channels = Object.fromEntries(
+    channelKeys.map((key) => {
+      const current = existing[key] ?? {};
+      return [
+        key,
+        {
+          ...current,
+          allow: true,
+          allowBots: current.allowBots ?? false,
+        },
+      ];
+    }),
+  );
   return patchSlackConfigForAccount(cfg, accountId, { channels });
 }
 

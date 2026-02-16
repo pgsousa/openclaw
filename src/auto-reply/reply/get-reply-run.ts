@@ -50,6 +50,29 @@ import { appendUntrustedContext } from "./untrusted-context.js";
 
 type AgentDefaults = NonNullable<OpenClawConfig["agents"]>["defaults"];
 type ExecOverrides = Pick<ExecToolDefaults, "host" | "security" | "ask" | "node">;
+const DETERMINISTIC_FIX_PATTERN = /^\/?fix\s+([A-Za-z][A-Za-z0-9_.:-]{2,180})$/i;
+
+function extractDeterministicFixAlertId(commandBodyNormalized: string): string | undefined {
+  const match = commandBodyNormalized.trim().match(DETERMINISTIC_FIX_PATTERN);
+  if (!match) {
+    return undefined;
+  }
+  const alertId = match[1]?.trim();
+  if (!alertId || alertId.toLowerCase() === "it") {
+    return undefined;
+  }
+  return alertId;
+}
+
+function buildFixContinuationDirective(alertId: string): string {
+  return [
+    `[Operator remediation directive for ${alertId}]`,
+    `Run remediation workflow for alert id ${alertId} until mitigation or a hard blocker is reached.`,
+    "Use only observed alert/thread fields; do not invent identifiers.",
+    "Do not stop at generic diagnostics when namespace/pod/container are already present.",
+    "Propose one concrete mutating command with impact/risk, wait for approval, then continue with verification and next action.",
+  ].join("\n");
+}
 
 type RunPreparedReplyParams = {
   ctx: MsgContext;
@@ -298,6 +321,15 @@ export async function runPreparedReply(
   if (!resolvedThinkLevel) {
     resolvedThinkLevel = await modelState.resolveDefaultThinkingLevel();
   }
+  const deterministicFixAlertId = extractDeterministicFixAlertId(command.commandBodyNormalized);
+  const deterministicFixDirective = deterministicFixAlertId
+    ? buildFixContinuationDirective(deterministicFixAlertId)
+    : undefined;
+  if (deterministicFixDirective) {
+    prefixedCommandBody = [prefixedCommandBody, deterministicFixDirective]
+      .filter(Boolean)
+      .join("\n\n");
+  }
   if (resolvedThinkLevel === "xhigh" && !supportsXHighThinking(provider, model)) {
     const explicitThink = directives.hasThinkDirective && directives.thinkLevel !== undefined;
     if (explicitThink) {
@@ -346,7 +378,9 @@ export async function runPreparedReply(
     sessionEntry,
     resolveSessionFilePathOptions({ agentId, storePath }),
   );
-  const queueBodyBase = [threadContextNote, effectiveBaseBody].filter(Boolean).join("\n\n");
+  const queueBodyBase = [threadContextNote, effectiveBaseBody, deterministicFixDirective]
+    .filter(Boolean)
+    .join("\n\n");
   const queuedBody = mediaNote
     ? [mediaNote, mediaReplyHint, queueBodyBase].filter(Boolean).join("\n").trim()
     : queueBodyBase;

@@ -4,7 +4,7 @@ import { requireActivePluginRegistry } from "../plugins/runtime.js";
 
 // Channel docking: add new core channels here (order + meta + aliases), then
 // register the plugin in its extension entrypoint and keep protocol IDs in sync.
-export const CHAT_CHANNEL_ORDER = [
+const ALL_CHAT_CHANNEL_IDS = [
   "telegram",
   "whatsapp",
   "discord",
@@ -15,11 +15,13 @@ export const CHAT_CHANNEL_ORDER = [
   "imessage",
 ] as const;
 
-export type ChatChannelId = (typeof CHAT_CHANNEL_ORDER)[number];
+export type ChatChannelId = (typeof ALL_CHAT_CHANNEL_IDS)[number];
+
+export const CHAT_CHANNEL_ORDER: readonly ChatChannelId[] = ["slack"];
 
 export const CHANNEL_IDS = [...CHAT_CHANNEL_ORDER] as const;
 
-export const DEFAULT_CHAT_CHANNEL: ChatChannelId = "whatsapp";
+export const DEFAULT_CHAT_CHANNEL: ChatChannelId = "slack";
 
 export type ChatChannelMeta = ChannelMeta;
 
@@ -123,12 +125,16 @@ const normalizeChannelKey = (raw?: string | null): string | undefined => {
   return normalized || undefined;
 };
 
+const ENABLED_CHAT_CHANNEL_SET = new Set<string>(CHAT_CHANNEL_ORDER);
+
 export function listChatChannels(): ChatChannelMeta[] {
   return CHAT_CHANNEL_ORDER.map((id) => CHAT_CHANNEL_META[id]);
 }
 
 export function listChatChannelAliases(): string[] {
-  return Object.keys(CHAT_CHANNEL_ALIASES);
+  return Object.keys(CHAT_CHANNEL_ALIASES).filter(
+    (alias) => normalizeChatChannelId(alias) !== null,
+  );
 }
 
 export function getChatChannelMeta(id: ChatChannelId): ChatChannelMeta {
@@ -141,7 +147,7 @@ export function normalizeChatChannelId(raw?: string | null): ChatChannelId | nul
     return null;
   }
   const resolved = CHAT_CHANNEL_ALIASES[normalized] ?? normalized;
-  return CHAT_CHANNEL_ORDER.includes(resolved) ? resolved : null;
+  return ENABLED_CHAT_CHANNEL_SET.has(resolved) ? resolved : null;
 }
 
 // Channel docking: prefer this helper in shared code. Importing from
@@ -170,7 +176,10 @@ export function normalizeAnyChannelId(raw?: string | null): ChannelId | null {
     }
     return (entry.plugin.meta.aliases ?? []).some((alias) => alias.trim().toLowerCase() === key);
   });
-  return hit?.plugin.id ?? null;
+  if (!hit) {
+    return null;
+  }
+  return normalizeChatChannelId(hit.plugin.id);
 }
 
 export function formatChannelPrimerLine(meta: ChatChannelMeta): string {

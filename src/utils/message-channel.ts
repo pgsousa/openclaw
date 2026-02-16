@@ -17,15 +17,7 @@ import { getActivePluginRegistry } from "../plugins/runtime.js";
 export const INTERNAL_MESSAGE_CHANNEL = "webchat" as const;
 export type InternalMessageChannel = typeof INTERNAL_MESSAGE_CHANNEL;
 
-const MARKDOWN_CAPABLE_CHANNELS = new Set<string>([
-  "slack",
-  "telegram",
-  "signal",
-  "discord",
-  "googlechat",
-  "tui",
-  INTERNAL_MESSAGE_CHANNEL,
-]);
+const MARKDOWN_CAPABLE_CHANNELS = new Set<string>(["slack", "tui", INTERNAL_MESSAGE_CHANNEL]);
 
 export { GATEWAY_CLIENT_NAMES, GATEWAY_CLIENT_MODES };
 export type { GatewayClientName, GatewayClientMode };
@@ -66,11 +58,14 @@ export function normalizeMessageChannel(raw?: string | null): string | undefined
   }
   const registry = getActivePluginRegistry();
   const pluginMatch = registry?.channels.find((entry) => {
+    if (!normalizeChatChannelId(entry.plugin.id)) {
+      return false;
+    }
     if (entry.plugin.id.toLowerCase() === normalized) {
       return true;
     }
     return (entry.plugin.meta.aliases ?? []).some(
-      (alias) => alias.trim().toLowerCase() === normalized,
+      (alias) => normalizeChatChannelId(alias) && alias.trim().toLowerCase() === normalized,
     );
   });
   return pluginMatch?.plugin.id ?? normalized;
@@ -81,7 +76,9 @@ const listPluginChannelIds = (): string[] => {
   if (!registry) {
     return [];
   }
-  return registry.channels.map((entry) => entry.plugin.id);
+  return registry.channels
+    .map((entry) => entry.plugin.id)
+    .filter((channelId) => normalizeChatChannelId(channelId) !== null);
 };
 
 const listPluginChannelAliases = (): string[] => {
@@ -89,7 +86,9 @@ const listPluginChannelAliases = (): string[] => {
   if (!registry) {
     return [];
   }
-  return registry.channels.flatMap((entry) => entry.plugin.meta.aliases ?? []);
+  return registry.channels.flatMap((entry) =>
+    (entry.plugin.meta.aliases ?? []).filter((alias) => normalizeChatChannelId(alias) !== null),
+  );
 };
 
 export const listDeliverableMessageChannels = (): ChannelId[] =>

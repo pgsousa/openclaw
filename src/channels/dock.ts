@@ -41,7 +41,12 @@ import {
   resolveWhatsAppGroupRequireMention,
   resolveWhatsAppGroupToolPolicy,
 } from "./plugins/group-mentions.js";
-import { CHAT_CHANNEL_ORDER, type ChatChannelId, getChatChannelMeta } from "./registry.js";
+import {
+  CHAT_CHANNEL_ORDER,
+  type ChatChannelId,
+  getChatChannelMeta,
+  normalizeChatChannelId,
+} from "./registry.js";
 
 export type ChannelDock = {
   id: ChannelId;
@@ -484,7 +489,7 @@ function listPluginDockEntries(): Array<{ id: ChannelId; dock: ChannelDock; orde
   for (const entry of registry.channels) {
     const plugin = entry.plugin;
     const id = String(plugin.id).trim();
-    if (!id || seen.has(id)) {
+    if (!id || seen.has(id) || !normalizeChatChannelId(id)) {
       continue;
     }
     seen.add(id);

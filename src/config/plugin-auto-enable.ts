@@ -1,9 +1,6 @@
 import type { OpenClawConfig } from "./config.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
-import {
-  getChannelPluginCatalogEntry,
-  listChannelPluginCatalogEntries,
-} from "../channels/plugins/catalog.js";
+import { getChannelPluginCatalogEntry } from "../channels/plugins/catalog.js";
 import {
   getChatChannelMeta,
   listChatChannels,
@@ -22,12 +19,8 @@ export type PluginAutoEnableResult = {
   changes: string[];
 };
 
-const CHANNEL_PLUGIN_IDS = Array.from(
-  new Set([
-    ...listChatChannels().map((meta) => meta.id),
-    ...listChannelPluginCatalogEntries().map((entry) => entry.id),
-  ]),
-);
+const CHANNEL_PLUGIN_IDS = listChatChannels().map((meta) => meta.id);
+const ALLOWED_CHANNEL_PLUGIN_IDS = new Set<string>(CHANNEL_PLUGIN_IDS);
 
 const PROVIDER_PLUGIN_IDS: Array<{ pluginId: string; providerId: string }> = [
   { pluginId: "google-antigravity-auth", providerId: "google-antigravity" },
@@ -321,11 +314,17 @@ function resolveConfiguredPlugins(
       if (key === "defaults") {
         continue;
       }
+      if (!ALLOWED_CHANNEL_PLUGIN_IDS.has(key)) {
+        continue;
+      }
       channelIds.add(key);
     }
   }
   for (const channelId of channelIds) {
     if (!channelId) {
+      continue;
+    }
+    if (!ALLOWED_CHANNEL_PLUGIN_IDS.has(channelId)) {
       continue;
     }
     if (isChannelConfigured(cfg, channelId, env)) {

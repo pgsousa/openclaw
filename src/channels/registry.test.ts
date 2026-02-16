@@ -6,17 +6,19 @@ import {
 } from "./registry.js";
 
 describe("channel registry", () => {
-  it("normalizes aliases", () => {
-    expect(normalizeChatChannelId("imsg")).toBe("imessage");
-    expect(normalizeChatChannelId("gchat")).toBe("googlechat");
-    expect(normalizeChatChannelId("google-chat")).toBe("googlechat");
-    expect(normalizeChatChannelId("internet-relay-chat")).toBe("irc");
+  it("only normalizes supported channels", () => {
+    expect(normalizeChatChannelId("slack")).toBe("slack");
+    expect(normalizeChatChannelId("imsg")).toBeNull();
+    expect(normalizeChatChannelId("gchat")).toBeNull();
+    expect(normalizeChatChannelId("google-chat")).toBeNull();
+    expect(normalizeChatChannelId("internet-relay-chat")).toBeNull();
     expect(normalizeChatChannelId("web")).toBeNull();
   });
 
-  it("keeps Telegram first in the default order", () => {
+  it("keeps Slack as the only default channel", () => {
     const channels = listChatChannels();
-    expect(channels[0]?.id).toBe("telegram");
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.id).toBe("slack");
   });
 
   it("does not include MS Teams by default", () => {
@@ -33,8 +35,7 @@ describe("channel registry", () => {
     const line = formatChannelSelectionLine(first, (path, label) =>
       [label, path].filter(Boolean).join(":"),
     );
-    expect(line).not.toContain("Docs:");
-    expect(line).toContain("/channels/telegram");
-    expect(line).toContain("https://openclaw.ai");
+    expect(line).toContain("Docs:");
+    expect(line).toContain("/channels/slack");
   });
 });

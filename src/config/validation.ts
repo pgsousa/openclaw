@@ -249,7 +249,10 @@ function validateConfigObjectWithPluginsBase(
         const { registry } = ensureRegistry();
         for (const record of registry.plugins) {
           for (const channelId of record.channels) {
-            allowedChannels.add(channelId);
+            const normalized = normalizeChatChannelId(channelId);
+            if (normalized) {
+              allowedChannels.add(normalized);
+            }
           }
         }
       }
@@ -287,9 +290,9 @@ function validateConfigObjectWithPluginsBase(
       const { registry } = ensureRegistry();
       for (const record of registry.plugins) {
         for (const channelId of record.channels) {
-          const pluginChannel = channelId.trim();
-          if (pluginChannel) {
-            heartbeatChannelIds.add(pluginChannel.toLowerCase());
+          const normalizedChannel = normalizeChatChannelId(channelId);
+          if (normalizedChannel) {
+            heartbeatChannelIds.add(normalizedChannel.toLowerCase());
           }
         }
       }

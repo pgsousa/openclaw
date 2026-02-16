@@ -1,6 +1,6 @@
 import { listChannelPluginCatalogEntries } from "../channels/plugins/catalog.js";
 import { listChannelPlugins } from "../channels/plugins/index.js";
-import { CHAT_CHANNEL_ORDER } from "../channels/registry.js";
+import { CHAT_CHANNEL_ORDER, normalizeChatChannelId } from "../channels/registry.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { ensurePluginRegistryLoaded } from "./plugin-registry.js";
 
@@ -18,7 +18,9 @@ function dedupe(values: string[]): string[] {
 }
 
 export function resolveCliChannelOptions(): string[] {
-  const catalog = listChannelPluginCatalogEntries().map((entry) => entry.id);
+  const catalog = listChannelPluginCatalogEntries()
+    .map((entry) => entry.id)
+    .filter((channelId) => normalizeChatChannelId(channelId) !== null);
   const base = dedupe([...CHAT_CHANNEL_ORDER, ...catalog]);
   if (isTruthyEnvValue(process.env.OPENCLAW_EAGER_CHANNEL_OPTIONS)) {
     ensurePluginRegistryLoaded();

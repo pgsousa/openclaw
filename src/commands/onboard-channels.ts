@@ -17,6 +17,7 @@ import {
   formatChannelPrimerLine,
   formatChannelSelectionLine,
   listChatChannels,
+  normalizeChatChannelId,
 } from "../channels/registry.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { isChannelConfigured } from "../config/plugin-auto-enable.js";
@@ -117,17 +118,19 @@ async function collectChannelStatus(params: {
   const installedIds = new Set(installedPlugins.map((plugin) => plugin.id));
   const workspaceDir = resolveAgentWorkspaceDir(params.cfg, resolveDefaultAgentId(params.cfg));
   const catalogEntries = listChannelPluginCatalogEntries({ workspaceDir }).filter(
-    (entry) => !installedIds.has(entry.id),
+    (entry) => normalizeChatChannelId(entry.id) !== null && !installedIds.has(entry.id),
   );
-  const statusEntries = await Promise.all(
-    listChannelOnboardingAdapters().map((adapter) =>
-      adapter.getStatus({
-        cfg: params.cfg,
-        options: params.options,
-        accountOverrides: params.accountOverrides,
-      }),
-    ),
-  );
+  const statusEntries = (
+    await Promise.all(
+      listChannelOnboardingAdapters().map((adapter) =>
+        adapter.getStatus({
+          cfg: params.cfg,
+          options: params.options,
+          accountOverrides: params.accountOverrides,
+        }),
+      ),
+    )
+  ).filter((entry) => normalizeChatChannelId(entry.channel) !== null);
   const statusByChannel = new Map(statusEntries.map((entry) => [entry.channel, entry]));
   const fallbackStatuses = listChatChannels()
     .filter((meta) => !statusByChannel.has(meta.id))
@@ -413,7 +416,7 @@ export async function setupChannels(
     const installedIds = new Set(installed.map((plugin) => plugin.id));
     const workspaceDir = resolveAgentWorkspaceDir(next, resolveDefaultAgentId(next));
     const catalog = listChannelPluginCatalogEntries({ workspaceDir }).filter(
-      (entry) => !installedIds.has(entry.id),
+      (entry) => normalizeChatChannelId(entry.id) !== null && !installedIds.has(entry.id),
     );
     const metaById = new Map<string, ChannelMeta>();
     for (const meta of core) {

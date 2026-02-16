@@ -98,20 +98,20 @@ describe("loadOpenClawPlugins", () => {
     expect(enabled?.status).toBe("loaded");
   });
 
-  it("loads bundled telegram plugin when enabled", () => {
+  it("loads bundled slack plugin when enabled", () => {
     const bundledDir = makeTempDir();
     writePlugin({
-      id: "telegram",
-      body: `export default { id: "telegram", register(api) {
+      id: "slack",
+      body: `export default { id: "slack", register(api) {
   api.registerChannel({
     plugin: {
-      id: "telegram",
+      id: "slack",
       meta: {
-        id: "telegram",
-        label: "Telegram",
-        selectionLabel: "Telegram",
-        docsPath: "/channels/telegram",
-        blurb: "telegram channel"
+        id: "slack",
+        label: "Slack",
+        selectionLabel: "Slack",
+        docsPath: "/channels/slack",
+        blurb: "slack channel"
       },
       capabilities: { chatTypes: ["direct"] },
       config: {
@@ -123,7 +123,7 @@ describe("loadOpenClawPlugins", () => {
   });
 	} };`,
       dir: bundledDir,
-      filename: "telegram.js",
+      filename: "slack.js",
     });
     process.env.OPENCLAW_BUNDLED_PLUGINS_DIR = bundledDir;
 
@@ -131,17 +131,17 @@ describe("loadOpenClawPlugins", () => {
       cache: false,
       config: {
         plugins: {
-          allow: ["telegram"],
+          allow: ["slack"],
           entries: {
-            telegram: { enabled: true },
+            slack: { enabled: true },
           },
         },
       },
     });
 
-    const telegram = registry.plugins.find((entry) => entry.id === "telegram");
-    expect(telegram?.status).toBe("loaded");
-    expect(registry.channels.some((entry) => entry.plugin.id === "telegram")).toBe(true);
+    const slack = registry.plugins.find((entry) => entry.id === "slack");
+    expect(slack?.status).toBe("loaded");
+    expect(registry.channels.some((entry) => entry.plugin.id === "slack")).toBe(true);
   });
 
   it("enables bundled memory plugin when selected by slot", () => {
@@ -290,13 +290,13 @@ describe("loadOpenClawPlugins", () => {
       body: `export default { id: "channel-demo", register(api) {
   api.registerChannel({
     plugin: {
-      id: "demo",
+      id: "slack",
       meta: {
-        id: "demo",
-        label: "Demo",
-        selectionLabel: "Demo",
-        docsPath: "/channels/demo",
-        blurb: "demo channel"
+        id: "slack",
+        label: "Slack",
+        selectionLabel: "Slack",
+        docsPath: "/channels/slack",
+        blurb: "slack channel"
       },
       capabilities: { chatTypes: ["direct"] },
       config: {
@@ -320,7 +320,7 @@ describe("loadOpenClawPlugins", () => {
       },
     });
 
-    const channel = registry.channels.find((entry) => entry.plugin.id === "demo");
+    const channel = registry.channels.find((entry) => entry.plugin.id === "slack");
     expect(channel).toBeDefined();
   });
 

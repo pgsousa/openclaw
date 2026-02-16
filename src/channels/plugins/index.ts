@@ -1,6 +1,11 @@
 import type { ChannelId, ChannelPlugin } from "./types.js";
 import { requireActivePluginRegistry } from "../../plugins/runtime.js";
-import { CHAT_CHANNEL_ORDER, type ChatChannelId, normalizeAnyChannelId } from "../registry.js";
+import {
+  CHAT_CHANNEL_ORDER,
+  type ChatChannelId,
+  normalizeAnyChannelId,
+  normalizeChatChannelId,
+} from "../registry.js";
 
 // Channel plugins registry (runtime).
 //
@@ -11,7 +16,9 @@ import { CHAT_CHANNEL_ORDER, type ChatChannelId, normalizeAnyChannelId } from ".
 // Channel plugins are registered by the plugin loader (extensions/ or configured paths).
 function listPluginChannels(): ChannelPlugin[] {
   const registry = requireActivePluginRegistry();
-  return registry.channels.map((entry) => entry.plugin);
+  return registry.channels
+    .map((entry) => entry.plugin)
+    .filter((plugin) => normalizeChatChannelId(plugin.id) !== null);
 }
 
 function dedupeChannels(channels: ChannelPlugin[]): ChannelPlugin[] {

@@ -3,6 +3,7 @@ import type { ChannelChoice } from "../onboard-types.js";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { listChannelPluginCatalogEntries } from "../../channels/plugins/catalog.js";
 import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
+import { normalizeChatChannelId } from "../../channels/registry.js";
 import { writeConfigFile, type OpenClawConfig } from "../../config/config.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../../runtime.js";
@@ -41,10 +42,16 @@ function resolveCatalogChannelEntry(raw: string, cfg: OpenClawConfig | null) {
   }
   const workspaceDir = cfg ? resolveAgentWorkspaceDir(cfg, resolveDefaultAgentId(cfg)) : undefined;
   return listChannelPluginCatalogEntries({ workspaceDir }).find((entry) => {
+    if (normalizeChatChannelId(entry.id) !== entry.id) {
+      return false;
+    }
     if (entry.id.toLowerCase() === trimmed) {
       return true;
     }
-    return (entry.meta.aliases ?? []).some((alias) => alias.trim().toLowerCase() === trimmed);
+    return (entry.meta.aliases ?? []).some(
+      (alias) =>
+        normalizeChatChannelId(alias) === entry.id && alias.trim().toLowerCase() === trimmed,
+    );
   });
 }
 

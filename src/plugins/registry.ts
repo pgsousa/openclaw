@@ -34,6 +34,8 @@ import { resolveUserPath } from "../utils.js";
 import { registerPluginCommand } from "./commands.js";
 import { normalizePluginHttpPath } from "./http-path.js";
 
+const SUPPORTED_RUNTIME_CHANNEL_IDS = new Set(["slack"]);
+
 export type PluginToolRegistration = {
   pluginId: string;
   factory: OpenClawPluginToolFactory;
@@ -345,6 +347,15 @@ export function createPluginRegistry(registryParams: PluginRegistryParams) {
         pluginId: record.id,
         source: record.source,
         message: "channel registration missing id",
+      });
+      return;
+    }
+    if (!SUPPORTED_RUNTIME_CHANNEL_IDS.has(id)) {
+      pushDiagnostic({
+        level: "warn",
+        pluginId: record.id,
+        source: record.source,
+        message: `channel registration skipped: unsupported channel id "${id}"`,
       });
       return;
     }

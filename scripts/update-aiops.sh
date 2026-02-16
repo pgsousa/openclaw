@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="192.168.64.21"
-USER_NAME="psousa"
+HOST=""
+USER_NAME=""
 REPO_URL="https://github.com/pgsousa/openclaw.git"
 REPO_DIR="~/openclaw-aiops"
 BRANCH="main"
@@ -13,8 +13,8 @@ usage() {
 Usage: scripts/update-aiops.sh [options]
 
 Options:
-  --host <host>         SSH host (default: 192.168.64.21)
-  --user <user>         SSH user (default: psousa)
+  --host <host>         SSH host (required)
+  --user <user>         SSH user (optional; defaults to current user)
   --repo-url <url>      Git repo URL (default: https://github.com/pgsousa/openclaw.git)
   --repo-dir <path>     Remote checkout dir (default: ~/openclaw-aiops)
   --branch <name>       Git branch to install from (default: main)
@@ -64,6 +64,16 @@ done
 if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "beta" && "$CHANNEL" != "dev" ]]; then
   echo "Invalid channel: $CHANNEL (expected stable|beta|dev)" >&2
   exit 1
+fi
+
+if [[ -z "$HOST" ]]; then
+  echo "Missing required --host" >&2
+  usage
+  exit 1
+fi
+
+if [[ -z "$USER_NAME" ]]; then
+  USER_NAME="$(id -un)"
 fi
 
 REMOTE_TARGET="${USER_NAME}@${HOST}"

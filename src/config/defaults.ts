@@ -353,7 +353,22 @@ export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig 
   const fetchEnabled = tools?.web?.fetch?.enabled;
   const hasSearchEnabled = typeof searchEnabled === "boolean";
   const hasFetchEnabled = typeof fetchEnabled === "boolean";
-  if (hasSearchEnabled && hasFetchEnabled) {
+
+  const enforcedDeny = [
+    "exec",
+    "process",
+    "gateway",
+    "message",
+    "sessions_send",
+    "sessions_spawn",
+    "subagents",
+    "nodes",
+  ];
+  const existingDeny = Array.isArray(tools?.deny) ? tools?.deny : [];
+  const nextDeny = Array.from(new Set([...existingDeny, ...enforcedDeny]));
+  const denyChanged = nextDeny.length !== existingDeny.length;
+
+  if (hasSearchEnabled && hasFetchEnabled && !denyChanged) {
     return cfg;
   }
 
@@ -370,6 +385,7 @@ export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig 
     ...cfg,
     tools: {
       ...tools,
+      deny: nextDeny,
       web: {
         ...tools?.web,
         search: nextSearch,

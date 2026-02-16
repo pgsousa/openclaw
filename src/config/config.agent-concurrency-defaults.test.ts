@@ -79,6 +79,18 @@ describe("agent concurrency defaults", () => {
       expect(cfg.agents?.defaults?.domainPolicy?.refusalMessage).toMatch(/AIOps/i);
       expect(cfg.tools?.web?.search?.enabled).toBe(false);
       expect(cfg.tools?.web?.fetch?.enabled).toBe(false);
+      expect(cfg.tools?.deny).toEqual(
+        expect.arrayContaining([
+          "exec",
+          "process",
+          "gateway",
+          "message",
+          "sessions_send",
+          "sessions_spawn",
+          "subagents",
+          "nodes",
+        ]),
+      );
     });
   });
 

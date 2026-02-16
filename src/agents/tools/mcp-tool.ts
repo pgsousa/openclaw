@@ -13,6 +13,9 @@ const MCP_ACTIONS = ["servers", "tools", "call"] as const;
 const MCP_OUTPUT_FORMATS = ["json", "text"] as const;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DISABLE_BUNDLED_MCPORTER_ENV = "OPENCLAW_MCP_DISABLE_BUNDLED";
+const MCP_ALLOW_MUTATIONS_ENV = "OPENCLAW_MCP_ALLOW_MUTATIONS";
+const MCP_ALLOWED_SERVERS_ENV = "OPENCLAW_MCP_ALLOWED_SERVERS";
+const DEFAULT_ALLOWED_SERVERS = ["prometheus", "kibana", "opensearch", "kubernetes", "ceph"];
 
 type McporterCommand = {
   command: string;
@@ -186,6 +189,23 @@ function resolveEffectiveConfigPath(value: string | undefined): string | undefin
   return existsSync(defaultPath) ? defaultPath : undefined;
 }
 
+function resolveAllowedServers(): Set<string> {
+  const raw = process.env[MCP_ALLOWED_SERVERS_ENV]?.trim();
+  const values = raw
+    ? raw
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    : DEFAULT_ALLOWED_SERVERS;
+  return new Set(values);
+}
+
+function isMutatingToolName(name: string): boolean {
+  return /(?:create|update|delete|remove|patch|apply|exec|run|restart|stop|start|scale|drain|cordon|uncordon|kill|shell|command|write|set)/i.test(
+    name,
+  );
+}
+
 export function createMcpTool(): AnyAgentTool {
   return {
     label: "MCP",
@@ -211,6 +231,28 @@ export function createMcpTool(): AnyAgentTool {
       } else if (action === "call") {
         const tool = readStringParam(params, "tool", { required: true });
         const argsJson = readStringParam(params, "argsJson");
+
+        const [serverRaw, ...toolParts] = tool.split(".");
+        const server = serverRaw?.trim().toLowerCase();
+        const toolName = toolParts.join(".").trim();
+        if (!server || !toolName) {
+          throw new Error('Invalid tool format. Expected "server.tool".');
+        }
+
+        const allowedServers = resolveAllowedServers();
+        if (!allowedServers.has(server)) {
+          throw new Error(
+            `MCP server "${server}" is not allowed. Allowed servers: ${Array.from(allowedServers).join(", ")}`,
+          );
+        }
+
+        const allowMutations = process.env[MCP_ALLOW_MUTATIONS_ENV] === "1";
+        if (!allowMutations && isMutatingToolName(toolName)) {
+          throw new Error(
+            `Blocked mutating MCP call "${tool}". This gateway is in read-only MCP mode. Set ${MCP_ALLOW_MUTATIONS_ENV}=1 to override.`,
+          );
+        }
+
         commandArgs = [...baseArgs, "call", tool, "--output", output];
         if (argsJson) {
           commandArgs.push("--args", argsJson);

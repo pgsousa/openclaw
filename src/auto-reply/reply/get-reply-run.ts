@@ -25,7 +25,7 @@ import { logVerbose } from "../../globals.js";
 import { clearCommandLane, getQueueSize } from "../../process/command-queue.js";
 import { normalizeMainKey } from "../../routing/session-key.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
-import { hasControlCommand } from "../command-detection.js";
+import { hasControlCommand, isDeterministicFixOrApprovalCommand } from "../command-detection.js";
 import { buildInboundMediaNote } from "../media-note.js";
 import {
   type ElevatedLevel,
@@ -357,12 +357,24 @@ export async function runPreparedReply(
     inlineMode: perMessageQueueMode,
     inlineOptions: perMessageQueueOptions,
   });
+  const isDeterministicPriorityCommand = isDeterministicFixOrApprovalCommand(
+    command.commandBodyNormalized,
+  );
+  if (isDeterministicPriorityCommand && resolvedQueue.mode !== "interrupt") {
+    // Deterministic operator commands (fix/approve) should not be delayed by backlog.
+    resolvedQueue.mode = "interrupt";
+    resolvedQueue.debounceMs = 0;
+  }
   const sessionLaneKey = resolveEmbeddedSessionLane(sessionKey ?? sessionIdFinal);
   const laneSize = getQueueSize(sessionLaneKey);
-  if (resolvedQueue.mode === "interrupt" && laneSize > 0) {
-    const cleared = clearCommandLane(sessionLaneKey);
+  if (resolvedQueue.mode === "interrupt") {
+    const cleared = laneSize > 0 ? clearCommandLane(sessionLaneKey) : 0;
     const aborted = abortEmbeddedPiRun(sessionIdFinal);
-    logVerbose(`Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted})`);
+    if (cleared > 0 || aborted || isDeterministicPriorityCommand) {
+      logVerbose(
+        `Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted}, deterministic=${isDeterministicPriorityCommand})`,
+      );
+    }
   }
   const queueKey = sessionKey ?? sessionIdFinal;
   const isActive = isEmbeddedPiRunActive(sessionIdFinal);

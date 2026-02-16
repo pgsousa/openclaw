@@ -187,6 +187,8 @@ describe("handleCommands gating", () => {
 });
 
 describe("/approve command", () => {
+  const APPROVAL_ID = "cdc9d57c-f5fc-4cd1-8e3e-5edbe1bb5548";
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -199,7 +201,7 @@ describe("/approve command", () => {
     const params = buildParams("/approve", cfg);
     const result = await handleCommands(params);
     expect(result.shouldContinue).toBe(false);
-    expect(result.reply?.text).toContain("Usage: /approve");
+    expect(result.reply?.text).toContain("Usage: approve");
   });
 
   it("submits approval", async () => {
@@ -207,7 +209,7 @@ describe("/approve command", () => {
       commands: { text: true },
       channels: { whatsapp: { allowFrom: ["*"] } },
     } as OpenClawConfig;
-    const params = buildParams("/approve abc allow-once", cfg, { SenderId: "123" });
+    const params = buildParams(`/approve ${APPROVAL_ID} allow-once`, cfg, { SenderId: "123" });
 
     callGatewayMock.mockResolvedValueOnce({ ok: true });
 
@@ -217,16 +219,191 @@ describe("/approve command", () => {
     expect(callGatewayMock).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "exec.approval.resolve",
-        params: { id: "abc", decision: "allow-once" },
+        params: { id: APPROVAL_ID, decision: "allow-once" },
       }),
     );
+  });
+
+  it("defaults to allow-once when /approve is used with only id", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`/approve ${APPROVAL_ID}`, cfg, { SenderId: "123" });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("submits approval with plain approve alias (no slash)", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`approve ${APPROVAL_ID} allow-once`, cfg, { SenderId: "U123" });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("defaults to allow-once for plain approve alias with id only", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`approve ${APPROVAL_ID}`, cfg, { SenderId: "U12345" });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("supports plain accept alias with id only", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`accept ${APPROVAL_ID}`, cfg, { SenderId: "U12345" });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("supports /accept alias", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`/accept ${APPROVAL_ID} allow-once`, cfg, { SenderId: "U12345" });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("includes approving user identity in gateway client display name for Slack", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`approve ${APPROVAL_ID}`, cfg, {
+      Provider: "slack",
+      Surface: "slack",
+      SenderId: "U12345",
+      SenderName: "Pedro Sousa",
+    });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("approved by Pedro Sousa");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientDisplayName: "Chat approval (slack:Pedro Sousa (<@U12345>))",
+      }),
+    );
+  });
+
+  it("rejects invalid plain approve usage with usage hint", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("approve delete", cfg, { SenderId: "U123" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Usage: approve");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("does not hijack non-command plain text", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("approved by me, proceed", cfg, { SenderId: "U123" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(true);
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects slash approval with invalid non-id token", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("/approve allow-once FIX-1", cfg, { SenderId: "U123" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Usage: approve");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects plain-text approval aliases with invalid non-id token", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("approve allow-once FIX-1", cfg, { SenderId: "U123" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Usage: approve");
+    expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
   it("rejects gateway clients without approvals scope", async () => {
     const cfg = {
       commands: { text: true },
     } as OpenClawConfig;
-    const params = buildParams("/approve abc allow-once", cfg, {
+    const params = buildParams(`/approve ${APPROVAL_ID} allow-once`, cfg, {
       Provider: "webchat",
       Surface: "webchat",
       GatewayClientScopes: ["operator.write"],
@@ -244,7 +421,7 @@ describe("/approve command", () => {
     const cfg = {
       commands: { text: true },
     } as OpenClawConfig;
-    const params = buildParams("/approve abc allow-once", cfg, {
+    const params = buildParams(`/approve ${APPROVAL_ID} allow-once`, cfg, {
       Provider: "webchat",
       Surface: "webchat",
       GatewayClientScopes: ["operator.approvals"],
@@ -258,7 +435,7 @@ describe("/approve command", () => {
     expect(callGatewayMock).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "exec.approval.resolve",
-        params: { id: "abc", decision: "allow-once" },
+        params: { id: APPROVAL_ID, decision: "allow-once" },
       }),
     );
   });
@@ -267,7 +444,7 @@ describe("/approve command", () => {
     const cfg = {
       commands: { text: true },
     } as OpenClawConfig;
-    const params = buildParams("/approve abc allow-once", cfg, {
+    const params = buildParams(`/approve ${APPROVAL_ID} allow-once`, cfg, {
       Provider: "webchat",
       Surface: "webchat",
       GatewayClientScopes: ["operator.admin"],
@@ -281,9 +458,51 @@ describe("/approve command", () => {
     expect(callGatewayMock).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "exec.approval.resolve",
-        params: { id: "abc", decision: "allow-once" },
+        params: { id: APPROVAL_ID, decision: "allow-once" },
       }),
     );
+  });
+});
+
+describe("fix command", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rejects ambiguous fix without alert id", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("fix it", cfg, { SenderId: "U12345" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Use: fix <alert-id>");
+  });
+
+  it("rejects slash fix without alert id", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("/fix", cfg, { SenderId: "U12345" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Use: fix <alert-id>");
+  });
+
+  it("allows explicit fix command with alert id to continue to model", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams("fix OpenClawSyntheticOOM-1771260415", cfg, { SenderId: "U12345" });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(true);
+    expect(result.reply).toBeUndefined();
   });
 });
 

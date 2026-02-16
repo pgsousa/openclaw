@@ -186,6 +186,14 @@ function resolveSenderCandidates(params: {
     pushCandidate(params.senderId);
     pushCandidate(params.senderE164);
   }
+  if (params.providerId === "slack") {
+    const senderId = (params.senderId ?? "").trim();
+    if (senderId) {
+      // Keep parity with Slack allowlist matching, which accepts prefixed forms.
+      pushCandidate(`slack:${senderId}`);
+      pushCandidate(`user:${senderId}`);
+    }
+  }
   pushCandidate(params.from);
 
   const normalized: string[] = [];

@@ -213,6 +213,48 @@ describe("resolveCommandAuthorization", () => {
   });
 
   describe("commands.allowFrom", () => {
+    it("accepts Slack commands.allowFrom entries with user: prefix", () => {
+      const cfg = {
+        commands: {
+          allowFrom: {
+            slack: ["user:U08EM17PMG9"],
+          },
+        },
+      } as OpenClawConfig;
+
+      const authorizedCtx = {
+        Provider: "slack",
+        Surface: "slack",
+        SenderId: "U08EM17PMG9",
+        SenderName: "Pedro Sousa",
+        From: "slack:channel:C0AF4J8C16Z",
+      } as MsgContext;
+
+      const authorizedAuth = resolveCommandAuthorization({
+        ctx: authorizedCtx,
+        cfg,
+        commandAuthorized: false,
+      });
+
+      expect(authorizedAuth.isAuthorizedSender).toBe(true);
+
+      const unauthorizedCtx = {
+        Provider: "slack",
+        Surface: "slack",
+        SenderId: "U0OTHERUSER",
+        SenderName: "Other User",
+        From: "slack:channel:C0AF4J8C16Z",
+      } as MsgContext;
+
+      const unauthorizedAuth = resolveCommandAuthorization({
+        ctx: unauthorizedCtx,
+        cfg,
+        commandAuthorized: true,
+      });
+
+      expect(unauthorizedAuth.isAuthorizedSender).toBe(false);
+    });
+
     it("uses commands.allowFrom global list when configured", () => {
       const cfg = {
         commands: {

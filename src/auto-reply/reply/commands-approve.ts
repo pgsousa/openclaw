@@ -8,6 +8,13 @@ import {
 } from "../../utils/message-channel.js";
 
 const COMMAND = "/approve";
+const COMMAND_ALIAS = "/accept";
+const TEXT_COMMAND = "approve";
+const TEXT_COMMAND_ALIAS = "accept";
+const USAGE =
+  "Usage: approve <id> [allow-once|allow-always|deny] (aliases: accept, /approve, /accept)";
+const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]+$/;
+const APPROVAL_ID_PATTERN = /^[a-f0-9-]{8,}$/i;
 
 const DECISION_ALIASES: Record<string, "allow-once" | "allow-always" | "deny"> = {
   allow: "allow-once",
@@ -26,44 +33,112 @@ type ParsedApproveCommand =
   | { ok: true; id: string; decision: "allow-once" | "allow-always" | "deny" }
   | { ok: false; error: string };
 
-function parseApproveCommand(raw: string): ParsedApproveCommand | null {
-  const trimmed = raw.trim();
-  if (!trimmed.toLowerCase().startsWith(COMMAND)) {
+function parseApprovalId(raw: string): string | null {
+  const id = raw.trim();
+  if (!id) {
     return null;
   }
-  const rest = trimmed.slice(COMMAND.length).trim();
+  return APPROVAL_ID_PATTERN.test(id) ? id : null;
+}
+
+function parseApproveCommand(raw: string): ParsedApproveCommand | null {
+  const trimmed = raw.trim();
+  const lowered = trimmed.toLowerCase();
+
+  let rest = "";
+  if (lowered.startsWith(COMMAND)) {
+    rest = trimmed.slice(COMMAND.length).trim();
+  } else if (lowered.startsWith(COMMAND_ALIAS)) {
+    rest = trimmed.slice(COMMAND_ALIAS.length).trim();
+  } else if (lowered === TEXT_COMMAND || lowered.startsWith(`${TEXT_COMMAND} `)) {
+    rest = trimmed.slice(TEXT_COMMAND.length).trim();
+  } else if (
+    lowered === TEXT_COMMAND_ALIAS ||
+    lowered.startsWith(`${TEXT_COMMAND_ALIAS} `)
+  ) {
+    rest = trimmed.slice(TEXT_COMMAND_ALIAS.length).trim();
+  } else {
+    return null;
+  }
+
   if (!rest) {
-    return { ok: false, error: "Usage: /approve <id> allow-once|allow-always|deny" };
+    return { ok: false, error: USAGE };
   }
   const tokens = rest.split(/\s+/).filter(Boolean);
+  if (tokens.length === 1) {
+    const id = parseApprovalId(tokens[0]);
+    if (id) {
+      return { ok: true, id, decision: "allow-once" };
+    }
+    return { ok: false, error: USAGE };
+  }
   if (tokens.length < 2) {
-    return { ok: false, error: "Usage: /approve <id> allow-once|allow-always|deny" };
+    return { ok: false, error: USAGE };
   }
 
   const first = tokens[0].toLowerCase();
   const second = tokens[1].toLowerCase();
 
   if (DECISION_ALIASES[first]) {
+    const id = parseApprovalId(tokens.slice(1).join(" "));
+    if (!id) {
+      return { ok: false, error: USAGE };
+    }
     return {
       ok: true,
       decision: DECISION_ALIASES[first],
-      id: tokens.slice(1).join(" ").trim(),
+      id,
     };
   }
   if (DECISION_ALIASES[second]) {
+    const id = parseApprovalId(tokens[0]);
+    if (!id) {
+      return { ok: false, error: USAGE };
+    }
     return {
       ok: true,
       decision: DECISION_ALIASES[second],
-      id: tokens[0],
+      id,
     };
   }
-  return { ok: false, error: "Usage: /approve <id> allow-once|allow-always|deny" };
+  return { ok: false, error: USAGE };
 }
 
 function buildResolvedByLabel(params: Parameters<CommandHandler>[0]): string {
   const channel = params.command.channel;
-  const sender = params.command.senderId ?? "unknown";
-  return `${channel}:${sender}`;
+  const senderId = params.command.senderId?.trim() || "unknown";
+  const senderName = params.ctx.SenderName?.trim() || params.ctx.SenderUsername?.trim();
+  const slackSenderId = senderId.toUpperCase();
+
+  if (
+    channel === "slack" &&
+    senderId !== "unknown" &&
+    SLACK_USER_ID_PATTERN.test(slackSenderId)
+  ) {
+    if (senderName) {
+      return `${channel}:${senderName} (<@${slackSenderId}>)`;
+    }
+    return `${channel}:<@${slackSenderId}>`;
+  }
+  if (senderName && senderName !== senderId) {
+    return `${channel}:${senderName} (${senderId})`;
+  }
+  return `${channel}:${senderId}`;
+}
+
+function buildApproverLabel(params: Parameters<CommandHandler>[0]): string {
+  const senderId = params.command.senderId?.trim() || "unknown";
+  const senderName = params.ctx.SenderName?.trim() || params.ctx.SenderUsername?.trim();
+  if (params.command.channel === "slack" && SLACK_USER_ID_PATTERN.test(senderId.toUpperCase())) {
+    if (senderName) {
+      return `${senderName} (<@${senderId.toUpperCase()}>)`;
+    }
+    return `<@${senderId.toUpperCase()}>`;
+  }
+  if (senderName && senderName !== senderId) {
+    return `${senderName} (${senderId})`;
+  }
+  return senderId;
 }
 
 export const handleApproveCommand: CommandHandler = async (params, allowTextCommands) => {
@@ -94,13 +169,14 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ /approve requires operator.approvals for gateway clients.",
+          text: "❌ approve requires operator.approvals for gateway clients.",
         },
       };
     }
   }
 
   const resolvedBy = buildResolvedByLabel(params);
+  const approver = buildApproverLabel(params);
   try {
     await callGateway({
       method: "exec.approval.resolve",
@@ -120,6 +196,8 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
 
   return {
     shouldContinue: false,
-    reply: { text: `✅ Exec approval ${parsed.decision} submitted for ${parsed.id}.` },
+    reply: {
+      text: `✅ Exec approval ${parsed.decision} submitted for ${parsed.id} (approved by ${approver}).`,
+    },
   };
 };

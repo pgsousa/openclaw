@@ -347,6 +347,38 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   };
 }
 
+export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig {
+  const tools = cfg.tools;
+  const searchEnabled = tools?.web?.search?.enabled;
+  const fetchEnabled = tools?.web?.fetch?.enabled;
+  const hasSearchEnabled = typeof searchEnabled === "boolean";
+  const hasFetchEnabled = typeof fetchEnabled === "boolean";
+  if (hasSearchEnabled && hasFetchEnabled) {
+    return cfg;
+  }
+
+  const nextSearch = {
+    ...tools?.web?.search,
+    enabled: hasSearchEnabled ? searchEnabled : false,
+  };
+  const nextFetch = {
+    ...tools?.web?.fetch,
+    enabled: hasFetchEnabled ? fetchEnabled : false,
+  };
+
+  return {
+    ...cfg,
+    tools: {
+      ...tools,
+      web: {
+        ...tools?.web,
+        search: nextSearch,
+        fetch: nextFetch,
+      },
+    },
+  };
+}
+
 export function applyLoggingDefaults(cfg: OpenClawConfig): OpenClawConfig {
   const logging = cfg.logging;
   if (!logging) {

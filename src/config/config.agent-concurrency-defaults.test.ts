@@ -77,6 +77,8 @@ describe("agent concurrency defaults", () => {
       expect(cfg.agents?.defaults?.domainPolicy?.profile).toBe("aiops");
       expect(cfg.agents?.defaults?.domainPolicy?.applyTo).toBe("external_user");
       expect(cfg.agents?.defaults?.domainPolicy?.refusalMessage).toMatch(/AIOps/i);
+      expect(cfg.tools?.web?.search?.enabled).toBe(false);
+      expect(cfg.tools?.web?.fetch?.enabled).toBe(false);
     });
   });
 
@@ -111,6 +113,33 @@ describe("agent concurrency defaults", () => {
       expect(cfg.agents?.defaults?.domainPolicy?.profile).toBe("aiops");
       expect(cfg.agents?.defaults?.domainPolicy?.applyTo).toBe("all");
       expect(cfg.agents?.defaults?.domainPolicy?.refusalMessage).toBe("AIOPS_ONLY");
+    });
+  });
+
+  it("preserves explicit web tool enablement values", async () => {
+    await withTempHome(async (home) => {
+      const configDir = path.join(home, ".openclaw");
+      await fs.mkdir(configDir, { recursive: true });
+      await fs.writeFile(
+        path.join(configDir, "openclaw.json"),
+        JSON.stringify(
+          {
+            tools: {
+              web: {
+                search: { enabled: true },
+                fetch: { enabled: true },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      const cfg = loadConfig();
+      expect(cfg.tools?.web?.search?.enabled).toBe(true);
+      expect(cfg.tools?.web?.fetch?.enabled).toBe(true);
     });
   });
 });

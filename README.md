@@ -22,6 +22,7 @@ Out-of-scope requests are refused with this default message:
 - Platform: Linux only.
 - Channel: Slack only.
 - Browser tool: removed.
+- External web tools (`web_search`, `web_fetch`): disabled by default.
 - Bundled skills: `github`, `healthcheck`, `mcporter`.
 - MCP access: built in via `mcporter` (packaged dependency).
 
@@ -75,6 +76,25 @@ Use MCP to connect the agent to:
 - Jira
 - Slack workspace data
 - Public websites
+
+## Prompt Injection Hardening
+
+This fork applies the security recommendation from:
+https://docs.openclaw.ai/gateway/security#prompt-injection-does-not-require-public-dms
+
+By default:
+
+- `tools.web.search.enabled = false`
+- `tools.web.fetch.enabled = false`
+
+This reduces prompt-injection risk from untrusted external content (search snippets and fetched pages) even when DM access is restricted.
+
+If you intentionally need these tools, re-enable explicitly:
+
+```bash
+openclaw config set tools.web.search.enabled true
+openclaw config set tools.web.fetch.enabled true
+```
 
 ## Upstream Project
 

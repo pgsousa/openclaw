@@ -17,6 +17,7 @@ import { VERSION } from "../version.js";
 import { DuplicateAgentDirError, findDuplicateAgentDirs } from "./agent-dirs.js";
 import { rotateConfigBackups } from "./backup-rotation.js";
 import {
+  applyAIOpsSecurityDefaults,
   applyCompactionDefaults,
   applyContextPruningDefaults,
   applyAgentDefaults,
@@ -582,8 +583,10 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       const cfg = applyModelDefaults(
         applyCompactionDefaults(
           applyContextPruningDefaults(
-            applyAgentDefaults(
-              applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+            applyAIOpsSecurityDefaults(
+              applyAgentDefaults(
+                applySessionDefaults(applyLoggingDefaults(applyMessageDefaults(validated.config))),
+              ),
             ),
           ),
         ),
@@ -635,7 +638,9 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
         applyModelDefaults(
           applyCompactionDefaults(
             applyContextPruningDefaults(
-              applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+              applyAIOpsSecurityDefaults(
+                applyAgentDefaults(applySessionDefaults(applyMessageDefaults({}))),
+              ),
             ),
           ),
         ),
@@ -767,9 +772,11 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
           config: normalizeConfigPaths(
             applyTalkApiKey(
               applyModelDefaults(
-                applyAgentDefaults(
-                  applySessionDefaults(
-                    applyLoggingDefaults(applyMessageDefaults(validated.config)),
+                applyAIOpsSecurityDefaults(
+                  applyAgentDefaults(
+                    applySessionDefaults(
+                      applyLoggingDefaults(applyMessageDefaults(validated.config)),
+                    ),
                   ),
                 ),
               ),

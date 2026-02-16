@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveMcporterConfigPath } from "../../config/mcp.js";
 import { resolveUserPath } from "../../utils.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
@@ -20,6 +21,23 @@ type McporterCommand = {
 };
 
 const require = createRequire(import.meta.url);
+
+function resolveBundledCliFromImportMeta(): string | null {
+  const resolve = (
+    import.meta as ImportMeta & {
+      resolve?: (specifier: string) => string;
+    }
+  ).resolve;
+  if (typeof resolve !== "function") {
+    return null;
+  }
+  try {
+    const resolved = resolve("mcporter/cli");
+    return resolved.startsWith("file://") ? fileURLToPath(resolved) : resolved;
+  } catch {
+    return null;
+  }
+}
 
 const McpToolSchema = Type.Object({
   action: stringEnum(MCP_ACTIONS),
@@ -44,6 +62,15 @@ type McporterRunResult = {
 
 function resolveMcporterCommand(): McporterCommand {
   if (process.env[DISABLE_BUNDLED_MCPORTER_ENV] !== "1") {
+    const bundledCliFromImportMeta = resolveBundledCliFromImportMeta();
+    if (bundledCliFromImportMeta) {
+      return {
+        command: process.execPath,
+        argsPrefix: [bundledCliFromImportMeta],
+        display: `${process.execPath} ${bundledCliFromImportMeta}`,
+      };
+    }
+
     try {
       const packageJsonPath = require.resolve("mcporter/package.json");
       const packageJson = require(packageJsonPath) as {

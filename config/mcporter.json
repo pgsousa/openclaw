@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "prometheus": {
+      "command": "/usr/local/bin/mcp-prometheus",
+      "args": ["--endpoint", "https://prometheus.example.com"],
+      "env": {
+        "PROMETHEUS_TOKEN": "replace-me"
+      }
+    },
+    "kubernetes": {
+      "command": "/usr/local/bin/mcp-kubernetes",
+      "args": [
+        "--kubeconfig",
+        "/etc/openclaw/kubeconfig",
+        "--context",
+        "prod-cluster",
+        "--namespace",
+        "default"
+      ]
+    },
+    "opensearch": {
+      "command": "/usr/local/bin/mcp-opensearch",
+      "args": ["--endpoint", "https://opensearch.example.com"],
+      "env": {
+        "OPENSEARCH_USERNAME": "replace-me",
+        "OPENSEARCH_PASSWORD": "replace-me"
+      }
+    },
+    "ceph": {
+      "command": "/usr/local/bin/mcp-ceph",
+      "args": [
+        "--cluster",
+        "ceph-prod",
+        "--conf",
+        "/etc/ceph/ceph.conf",
+        "--keyring",
+        "/etc/ceph/ceph.client.openclaw.keyring"
+      ]
+    }
+  }
+}

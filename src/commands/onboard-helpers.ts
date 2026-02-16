@@ -8,6 +8,7 @@ import type { RuntimeEnv } from "../runtime.js";
 import type { NodeManagerChoice, OnboardMode, ResetScope } from "./onboard-types.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../agents/workspace.js";
 import { CONFIG_PATH } from "../config/config.js";
+import { ensureDefaultMcporterConfig } from "../config/mcp.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions.js";
 import { callGateway } from "../gateway/call.js";
 import { normalizeControlUiBasePath } from "../gateway/control-ui-shared.js";
@@ -297,6 +298,10 @@ export async function ensureWorkspaceAndSessions(
   const sessionsDir = resolveSessionTranscriptsDirForAgent(options?.agentId);
   await fs.mkdir(sessionsDir, { recursive: true });
   runtime.log(`Sessions OK: ${shortenHomePath(sessionsDir)}`);
+  const mcporter = await ensureDefaultMcporterConfig();
+  runtime.log(
+    `${mcporter.created ? "MCP config created" : "MCP config OK"}: ${shortenHomePath(mcporter.path)}`,
+  );
 }
 
 export function resolveNodeManagerOptions(): Array<{

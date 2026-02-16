@@ -1,7 +1,10 @@
 import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { resolveMcporterConfigPath } from "../../config/mcp.js";
+import { resolveUserPath } from "../../utils.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readNumberParam, readStringParam } from "./common.js";
 
@@ -147,6 +150,15 @@ function resolveTimeoutMs(value: number | undefined): number {
   return Math.max(1, Math.floor(value * 1000));
 }
 
+function resolveEffectiveConfigPath(value: string | undefined): string | undefined {
+  const explicit = value?.trim();
+  if (explicit) {
+    return resolveUserPath(explicit);
+  }
+  const defaultPath = resolveMcporterConfigPath();
+  return existsSync(defaultPath) ? defaultPath : undefined;
+}
+
 export function createMcpTool(): AnyAgentTool {
   return {
     label: "MCP",
@@ -158,7 +170,7 @@ export function createMcpTool(): AnyAgentTool {
       const params = args as Record<string, unknown>;
       const action = readStringParam(params, "action", { required: true });
       const output = resolveOutput(readStringParam(params, "output"));
-      const configPath = readStringParam(params, "configPath");
+      const configPath = resolveEffectiveConfigPath(readStringParam(params, "configPath"));
       const timeoutMs = resolveTimeoutMs(readNumberParam(params, "timeoutSeconds"));
 
       const baseArgs = configPath ? ["--config", configPath] : [];

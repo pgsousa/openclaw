@@ -66,6 +66,18 @@ openclaw gateway run --bind loopback --port 18789
 
 `mcporter` is included in this fork so MCP integrations can be enabled without a separate global install.
 
+During `openclaw setup` / `openclaw onboard`, this fork now bootstraps a default MCP config at:
+
+- `~/.openclaw/mcporter.json` (or `$OPENCLAW_STATE_DIR/mcporter.json`)
+
+You can override the runtime path with:
+
+- `OPENCLAW_MCPORTER_CONFIG_PATH=/path/to/mcporter.json`
+
+The repository template is provided at:
+
+- `config/mcporter.json`
+
 Use MCP to connect the agent to:
 
 - Prometheus

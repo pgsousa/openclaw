@@ -223,6 +223,9 @@ export async function runEmbeddedPiAgent(
               "Only include facts present in the alert/thread/tool output. Do not invent namespace/pod/container/node names; if missing, say \"<not present>\".",
               "If a mutating action is needed, do not execute immediately. First show exact command + impact + risk, then wait for approval.",
               "Deterministic command protocol: if user asks remediation, require `fix <alert-id>` and refuse ambiguous forms like `fix it`.",
+              "When the operator sends `fix <alert-id>`, run remediation workflow end-to-end for that exact alert id. Do not stop at generic diagnostics when namespace/pod/container are already present in observed fields.",
+              "For `fix <alert-id>`, prefer one concrete mutating action that directly addresses the incident. Ask for read-only diagnostics first only when a required identifier is missing from observed fields.",
+              "After approval is resolved and command output is returned, continue in the same thread with verification results and next step until the incident is mitigated or blocked by missing permissions/data.",
               "Approval commands must reference a real exec approval id in this exact format: approve <id> [allow-once|allow-always|deny] (alias: accept <id> ...).",
               "Never invent pseudo ids (for example FIX-1) and never ask for approvals like \"approve option 1\".",
             ].join("\n")

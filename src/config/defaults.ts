@@ -31,6 +31,8 @@ const DEFAULT_MODEL_COST: ModelDefinitionConfig["cost"] = {
   cacheRead: 0,
   cacheWrite: 0,
 };
+const DEFAULT_AIOPS_DOMAIN_REFUSAL_MESSAGE =
+  "I can only help with AIOps, Kubernetes, Linux, Prometheus, OpenSearch, and Ceph topics.";
 const DEFAULT_MODEL_INPUT: ModelDefinitionConfig["input"] = ["text"];
 const DEFAULT_MODEL_MAX_TOKENS = 8192;
 
@@ -299,9 +301,12 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   const hasSubMax =
     typeof defaults?.subagents?.maxConcurrent === "number" &&
     Number.isFinite(defaults.subagents.maxConcurrent);
-  if (hasMax && hasSubMax) {
-    return cfg;
-  }
+  const hasDomainEnabled = typeof defaults?.domainPolicy?.enabled === "boolean";
+  const hasDomainProfile = typeof defaults?.domainPolicy?.profile === "string";
+  const hasDomainApplyTo = typeof defaults?.domainPolicy?.applyTo === "string";
+  const hasDomainRefusal =
+    typeof defaults?.domainPolicy?.refusalMessage === "string" &&
+    defaults.domainPolicy.refusalMessage.trim().length > 0;
 
   let mutated = false;
   const nextDefaults = defaults ? { ...defaults } : {};
@@ -313,6 +318,16 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   const nextSubagents = defaults?.subagents ? { ...defaults.subagents } : {};
   if (!hasSubMax) {
     nextSubagents.maxConcurrent = DEFAULT_SUBAGENT_MAX_CONCURRENT;
+    mutated = true;
+  }
+  if (!(hasDomainEnabled && hasDomainProfile && hasDomainApplyTo && hasDomainRefusal)) {
+    nextDefaults.domainPolicy = {
+      enabled: defaults?.domainPolicy?.enabled ?? true,
+      profile: defaults?.domainPolicy?.profile ?? "aiops",
+      applyTo: defaults?.domainPolicy?.applyTo ?? "external_user",
+      refusalMessage:
+        defaults?.domainPolicy?.refusalMessage?.trim() || DEFAULT_AIOPS_DOMAIN_REFUSAL_MESSAGE,
+    };
     mutated = true;
   }
 

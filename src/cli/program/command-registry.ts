@@ -106,13 +106,6 @@ const coreEntries: CoreCliEntry[] = [
       mod.registerStatusHealthSessionsCommands(program);
     },
   },
-  {
-    commands: [{ name: "browser", description: "Browser tools" }],
-    register: async ({ program }) => {
-      const mod = await import("../browser-cli.js");
-      mod.registerBrowserCli(program);
-    },
-  },
 ];
 
 export function getCoreCliCommandNames(): string[] {

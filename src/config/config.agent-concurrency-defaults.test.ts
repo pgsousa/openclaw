@@ -73,6 +73,44 @@ describe("agent concurrency defaults", () => {
 
       expect(cfg.agents?.defaults?.maxConcurrent).toBe(DEFAULT_AGENT_MAX_CONCURRENT);
       expect(cfg.agents?.defaults?.subagents?.maxConcurrent).toBe(DEFAULT_SUBAGENT_MAX_CONCURRENT);
+      expect(cfg.agents?.defaults?.domainPolicy?.enabled).toBe(true);
+      expect(cfg.agents?.defaults?.domainPolicy?.profile).toBe("aiops");
+      expect(cfg.agents?.defaults?.domainPolicy?.applyTo).toBe("external_user");
+      expect(cfg.agents?.defaults?.domainPolicy?.refusalMessage).toMatch(/AIOps/i);
+    });
+  });
+
+  it("preserves explicit domain policy values", async () => {
+    await withTempHome(async (home) => {
+      const configDir = path.join(home, ".openclaw");
+      await fs.mkdir(configDir, { recursive: true });
+      await fs.writeFile(
+        path.join(configDir, "openclaw.json"),
+        JSON.stringify(
+          {
+            agents: {
+              defaults: {
+                domainPolicy: {
+                  enabled: false,
+                  profile: "aiops",
+                  applyTo: "all",
+                  refusalMessage: "AIOPS_ONLY",
+                },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      const cfg = loadConfig();
+
+      expect(cfg.agents?.defaults?.domainPolicy?.enabled).toBe(false);
+      expect(cfg.agents?.defaults?.domainPolicy?.profile).toBe("aiops");
+      expect(cfg.agents?.defaults?.domainPolicy?.applyTo).toBe("all");
+      expect(cfg.agents?.defaults?.domainPolicy?.refusalMessage).toBe("AIOPS_ONLY");
     });
   });
 });

@@ -167,6 +167,15 @@
         "restart": { "label": "restart", "detailKeys": ["reason", "delayMs"] }
       }
     },
+    "mcp": {
+      "emoji": "🧠",
+      "title": "MCP",
+      "actions": {
+        "servers": { "label": "servers" },
+        "tools": { "label": "tools", "detailKeys": ["server"] },
+        "call": { "label": "call", "detailKeys": ["tool"] }
+      }
+    },
     "message": {
       "emoji": "✉️",
       "title": "Message",

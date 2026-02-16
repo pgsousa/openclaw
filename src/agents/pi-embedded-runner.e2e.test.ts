@@ -287,6 +287,73 @@ describe("runEmbeddedPiAgent", () => {
     ).rejects.toThrow("Malformed agent session key");
   });
 
+  it("refuses out-of-domain prompts when aiops domain policy is enabled", async () => {
+    const sessionFile = nextSessionFile();
+    const cfg = {
+      ...makeOpenAiConfig(["mock-1"]),
+      agents: {
+        defaults: {
+          domainPolicy: {
+            enabled: true,
+            profile: "aiops",
+            refusalMessage: "AIOPS_ONLY",
+          },
+        },
+      },
+    } satisfies OpenClawConfig;
+    await ensureModels(cfg);
+
+    const result = await runEmbeddedPiAgent({
+      sessionId: "session:test-domain-refuse",
+      sessionKey: testSessionKey,
+      sessionFile,
+      workspaceDir,
+      config: cfg,
+      prompt: "Qual e a capital de Portugal?",
+      provider: "openai",
+      model: "mock-1",
+      timeoutMs: 5_000,
+      agentDir,
+      runId: "run-domain-refuse",
+      enqueue: immediateEnqueue,
+    });
+
+    expect(result.payloads?.[0]?.text).toBe("AIOPS_ONLY");
+  });
+
+  it("allows in-domain prompts when aiops domain policy is enabled", async () => {
+    const sessionFile = nextSessionFile();
+    const cfg = {
+      ...makeOpenAiConfig(["mock-1"]),
+      agents: {
+        defaults: {
+          domainPolicy: {
+            enabled: true,
+            profile: "aiops",
+          },
+        },
+      },
+    } satisfies OpenClawConfig;
+    await ensureModels(cfg);
+
+    const result = await runEmbeddedPiAgent({
+      sessionId: "session:test-domain-allow",
+      sessionKey: testSessionKey,
+      sessionFile,
+      workspaceDir,
+      config: cfg,
+      prompt: "Analisa alerta de Prometheus no Kubernetes",
+      provider: "openai",
+      model: "mock-1",
+      timeoutMs: 5_000,
+      agentDir,
+      runId: "run-domain-allow",
+      enqueue: immediateEnqueue,
+    });
+
+    expect(result.payloads?.[0]?.text).toBe("ok");
+  });
+
   it("persists the first user message before assistant output", { timeout: 120_000 }, async () => {
     const sessionFile = nextSessionFile();
     const cfg = makeOpenAiConfig(["mock-1"]);

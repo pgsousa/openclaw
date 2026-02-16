@@ -8,7 +8,6 @@ import { createOpenClawTools } from "./openclaw-tools.js";
 import { __testing, createOpenClawCodingTools } from "./pi-tools.js";
 import { createSandboxedReadTool } from "./pi-tools.read.js";
 import { createHostSandboxFsBridge } from "./test-helpers/host-sandbox-fs-bridge.js";
-import { createBrowserTool } from "./tools/browser-tool.js";
 
 const defaultTools = createOpenClawCodingTools();
 
@@ -136,30 +135,8 @@ describe("createOpenClawCodingTools", () => {
     });
   });
 
-  it("keeps browser tool schema OpenAI-compatible without normalization", () => {
-    const browser = createBrowserTool();
-    const schema = browser.parameters as { type?: unknown; anyOf?: unknown };
-    expect(schema.type).toBe("object");
-    expect(schema.anyOf).toBeUndefined();
-  });
-  it("mentions Chrome extension relay in browser tool description", () => {
-    const browser = createBrowserTool();
-    expect(browser.description).toMatch(/Chrome extension/i);
-    expect(browser.description).toMatch(/profile="chrome"/i);
-  });
-  it("keeps browser tool schema properties after normalization", () => {
-    const browser = defaultTools.find((tool) => tool.name === "browser");
-    expect(browser).toBeDefined();
-    const parameters = browser?.parameters as {
-      anyOf?: unknown[];
-      properties?: Record<string, unknown>;
-      required?: string[];
-    };
-    expect(parameters.properties?.action).toBeDefined();
-    expect(parameters.properties?.target).toBeDefined();
-    expect(parameters.properties?.targetUrl).toBeDefined();
-    expect(parameters.properties?.request).toBeDefined();
-    expect(parameters.required ?? []).toContain("action");
+  it("does not expose browser tool in default coding tools", () => {
+    expect(defaultTools.some((tool) => tool.name === "browser")).toBe(false);
   });
   it("exposes raw for gateway config.apply tool calls", () => {
     const gateway = defaultTools.find((tool) => tool.name === "gateway");
@@ -175,10 +152,10 @@ describe("createOpenClawCodingTools", () => {
     expect(parameters.required ?? []).not.toContain("raw");
   });
   it("flattens anyOf-of-literals to enum for provider compatibility", () => {
-    const browser = defaultTools.find((tool) => tool.name === "browser");
-    expect(browser).toBeDefined();
+    const canvas = defaultTools.find((tool) => tool.name === "canvas");
+    expect(canvas).toBeDefined();
 
-    const parameters = browser?.parameters as {
+    const parameters = canvas?.parameters as {
       properties?: Record<string, unknown>;
     };
     const action = parameters.properties?.action as
@@ -192,18 +169,7 @@ describe("createOpenClawCodingTools", () => {
     expect(action?.type).toBe("string");
     expect(action?.anyOf).toBeUndefined();
     expect(Array.isArray(action?.enum)).toBe(true);
-    expect(action?.enum).toContain("act");
-
-    const snapshotFormat = parameters.properties?.snapshotFormat as
-      | {
-          type?: unknown;
-          enum?: unknown[];
-          anyOf?: unknown[];
-        }
-      | undefined;
-    expect(snapshotFormat?.type).toBe("string");
-    expect(snapshotFormat?.anyOf).toBeUndefined();
-    expect(snapshotFormat?.enum).toEqual(["aria", "ai"]);
+    expect(action?.enum).toContain("snapshot");
   });
   it("inlines local $ref before removing unsupported keywords", () => {
     const cleaned = __testing.cleanToolSchemaForGemini({
@@ -278,7 +244,6 @@ describe("createOpenClawCodingTools", () => {
   it("keeps raw core tool schemas union-free", () => {
     const tools = createOpenClawTools();
     const coreTools = new Set([
-      "browser",
       "canvas",
       "nodes",
       "cron",
@@ -291,6 +256,7 @@ describe("createOpenClawCodingTools", () => {
       "sessions_spawn",
       "subagents",
       "session_status",
+      "mcp",
       "image",
     ]);
     expect(findUnionKeywordOffenders(tools, { onlyNames: coreTools })).toEqual([]);

@@ -25,6 +25,24 @@ export type AgentModelListConfig = {
   fallbacks?: string[];
 };
 
+export type AgentDomainPolicyConfig = {
+  /** Enable strict domain gating for prompts handled by this agent. */
+  enabled?: boolean;
+  /**
+   * Domain profile:
+   * - "aiops": only AIOps / Kubernetes / Linux / Prometheus / OpenSearch / Ceph topics
+   */
+  profile?: "aiops";
+  /**
+   * Scope for enforcement:
+   * - "external_user": only user-originated prompts (default)
+   * - "all": every prompt, including inter-session/internal prompts
+   */
+  applyTo?: "external_user" | "all";
+  /** Message returned when a prompt is outside the allowed domain. */
+  refusalMessage?: string;
+};
+
 export type AgentContextPruningConfig = {
   mode?: "off" | "cache-ttl";
   /** TTL to consider cache expired (duration string, default unit: minutes). */
@@ -128,6 +146,8 @@ export type AgentDefaultsConfig = {
   envelopeElapsed?: "on" | "off";
   /** Optional context window cap (used for runtime estimates + status %). */
   contextTokens?: number;
+  /** Optional strict domain policy for this agent runtime. */
+  domainPolicy?: AgentDomainPolicyConfig;
   /** Optional CLI backends for text-only fallback (claude-cli, etc.). */
   cliBackends?: Record<string, CliBackendConfig>;
   /** Opt-in: prune old tool results from the LLM context to reduce token usage. */

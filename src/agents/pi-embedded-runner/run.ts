@@ -18,6 +18,11 @@ import {
   resolveContextWindowInfo,
 } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
+import {
+  isPromptAllowedByDomainPolicy,
+  resolveAgentDomainPolicy,
+  shouldEnforceDomainPolicy,
+} from "../domain-policy.js";
 import { FailoverError, resolveFailoverStatus } from "../failover-error.js";
 import {
   ensureAuthProfileStore,
@@ -200,6 +205,50 @@ export async function runEmbeddedPiAgent(
 
       const provider = (params.provider ?? DEFAULT_PROVIDER).trim() || DEFAULT_PROVIDER;
       const modelId = (params.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+      const prompt =
+        provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
+
+      const domainPolicy = resolveAgentDomainPolicy({
+        config: params.config,
+        sessionKey: params.sessionKey,
+      });
+      const domainPolicySystemPrompt =
+        domainPolicy?.profile === "aiops"
+          ? [
+              "Specialization: AIOps operations assistant.",
+              "Only handle topics related to AIOps, Kubernetes, Linux, Prometheus, OpenSearch, Ceph, Jira operations, and Slack ops workflows.",
+              "If a request is outside this scope, refuse and ask the user to reframe it in-scope.",
+              "Preferred context sources for investigations: infrastructure docs, Jira tickets, Slack messages/channels, and public documentation websites.",
+            ].join("\n")
+          : undefined;
+      const extraSystemPrompt = [params.extraSystemPrompt?.trim(), domainPolicySystemPrompt]
+        .filter(Boolean)
+        .join("\n\n")
+        .trim();
+      if (
+        domainPolicy &&
+        shouldEnforceDomainPolicy({
+          policy: domainPolicy,
+          inputProvenance: params.inputProvenance,
+        }) &&
+        !isPromptAllowedByDomainPolicy({ prompt, policy: domainPolicy })
+      ) {
+        log.info(
+          `[domain-policy] blocked out-of-domain prompt run=${params.runId} session=${redactedSessionId} sessionKey=${redactedSessionKey}`,
+        );
+        return {
+          payloads: [{ text: domainPolicy.refusalMessage }],
+          meta: {
+            durationMs: Date.now() - started,
+            agentMeta: {
+              sessionId: params.sessionId,
+              provider,
+              model: modelId,
+            },
+          },
+        };
+      }
+
       const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
       const fallbackConfigured =
         (params.config?.agents?.defaults?.model?.fallbacks?.length ?? 0) > 0;
@@ -419,9 +468,6 @@ export async function runEmbeddedPiAgent(
           attemptedThinking.add(thinkLevel);
           await fs.mkdir(resolvedWorkspace, { recursive: true });
 
-          const prompt =
-            provider === "anthropic" ? scrubAnthropicRefusalMagic(params.prompt) : params.prompt;
-
           const attempt = await runEmbeddedAttempt({
             sessionId: params.sessionId,
             sessionKey: params.sessionKey,
@@ -473,7 +519,7 @@ export async function runEmbeddedPiAgent(
             onReasoningStream: params.onReasoningStream,
             onToolResult: params.onToolResult,
             onAgentEvent: params.onAgentEvent,
-            extraSystemPrompt: params.extraSystemPrompt,
+            extraSystemPrompt: extraSystemPrompt || undefined,
             inputProvenance: params.inputProvenance,
             streamParams: params.streamParams,
             ownerNumbers: params.ownerNumbers,
@@ -589,7 +635,7 @@ export async function runEmbeddedPiAgent(
                 thinkLevel,
                 reasoningLevel: params.reasoningLevel,
                 bashElevated: params.bashElevated,
-                extraSystemPrompt: params.extraSystemPrompt,
+                extraSystemPrompt: extraSystemPrompt || undefined,
                 ownerNumbers: params.ownerNumbers,
                 trigger: "overflow",
                 diagId: overflowDiagId,

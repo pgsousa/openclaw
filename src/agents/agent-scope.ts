@@ -24,6 +24,7 @@ type ResolvedAgentConfig = {
   heartbeat?: AgentEntry["heartbeat"];
   identity?: AgentEntry["identity"];
   groupChat?: AgentEntry["groupChat"];
+  domainPolicy?: AgentEntry["domainPolicy"];
   subagents?: AgentEntry["subagents"];
   sandbox?: AgentEntry["sandbox"];
   tools?: AgentEntry["tools"];
@@ -118,6 +119,8 @@ export function resolveAgentConfig(
     heartbeat: entry.heartbeat,
     identity: entry.identity,
     groupChat: entry.groupChat,
+    domainPolicy:
+      typeof entry.domainPolicy === "object" && entry.domainPolicy ? entry.domainPolicy : undefined,
     subagents: typeof entry.subagents === "object" && entry.subagents ? entry.subagents : undefined,
     sandbox: entry.sandbox,
     tools: entry.tools,

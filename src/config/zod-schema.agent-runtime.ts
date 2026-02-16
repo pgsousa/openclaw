@@ -87,6 +87,16 @@ export const HeartbeatSchema = z
   })
   .optional();
 
+export const AgentDomainPolicySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    profile: z.literal("aiops").optional(),
+    applyTo: z.union([z.literal("external_user"), z.literal("all")]).optional(),
+    refusalMessage: z.string().optional(),
+  })
+  .strict()
+  .optional();
+
 export const SandboxDockerSchema = z
   .object({
     image: z.string().optional(),
@@ -466,6 +476,7 @@ export const AgentEntrySchema = z
     heartbeat: HeartbeatSchema,
     identity: IdentitySchema,
     groupChat: GroupChatSchema,
+    domainPolicy: AgentDomainPolicySchema,
     subagents: z
       .object({
         allowAgents: z.array(z.string()).optional(),

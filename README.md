@@ -55,6 +55,27 @@ openclaw onboard --install-daemon
 
 The wizard installs the Gateway daemon (launchd/systemd user service) so it stays running.
 
+## OpenClaw AIOps Profile (this fork)
+
+This fork is specialized for AIOps workflows and ships with an in-scope runtime profile:
+
+- Domain focus only: AIOps, Kubernetes, Linux, Prometheus, OpenSearch, Ceph, Jira ops workflows, and Slack ops workflows.
+- Out-of-scope prompts are refused with a fixed policy message.
+- MCP access is built-in through the `mcp` tool using bundled `mcporter` (no separate global install required).
+- Browser tooling is removed from the default agent toolset in this fork.
+- Bundled skills are minimized to `github`, `healthcheck`, and `mcporter`.
+- Supported runtime platforms are restricted to macOS, Linux, and Windows.
+- Some upstream sections below still describe browser capabilities; treat those as upstream-only, not part of this AIOps fork profile.
+
+The strict AIOps domain policy is enabled by default in this fork. Run the commands below to pin/override values in existing installations:
+
+```bash
+openclaw config set agents.defaults.domainPolicy.enabled true
+openclaw config set agents.defaults.domainPolicy.profile aiops
+openclaw config set agents.defaults.domainPolicy.applyTo external_user
+openclaw config set agents.defaults.domainPolicy.refusalMessage "I can only help with AIOps, Kubernetes, Linux, Prometheus, OpenSearch, and Ceph topics."
+```
+
 ## Quick start (TL;DR)
 
 Runtime: **Node ≥22**.
@@ -125,7 +146,7 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 - **[Multi-agent routing](https://docs.openclaw.ai/gateway/configuration)** — route inbound channels/accounts/peers to isolated agents (workspaces + per-agent sessions).
 - **[Voice Wake](https://docs.openclaw.ai/nodes/voicewake) + [Talk Mode](https://docs.openclaw.ai/nodes/talk)** — always-on speech for macOS/iOS/Android with ElevenLabs.
 - **[Live Canvas](https://docs.openclaw.ai/platforms/mac/canvas)** — agent-driven visual workspace with [A2UI](https://docs.openclaw.ai/platforms/mac/canvas#canvas-a2ui).
-- **[First-class tools](https://docs.openclaw.ai/tools)** — browser, canvas, nodes, cron, sessions, and Discord/Slack actions.
+- **[First-class tools](https://docs.openclaw.ai/tools)** — MCP (mcporter), canvas, nodes, cron, sessions, and Discord/Slack actions.
 - **[Companion apps](https://docs.openclaw.ai/platforms/macos)** — macOS menu bar app + iOS/Android [nodes](https://docs.openclaw.ai/nodes).
 - **[Onboarding](https://docs.openclaw.ai/start/wizard) + [skills](https://docs.openclaw.ai/tools/skills)** — wizard-driven setup with bundled/managed/workspace skills.
 

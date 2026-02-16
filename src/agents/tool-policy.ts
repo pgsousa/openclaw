@@ -30,7 +30,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     "session_status",
   ],
   // UI helpers
-  "group:ui": ["browser", "canvas"],
+  "group:ui": ["canvas"],
   // Automation + infra
   "group:automation": ["cron", "gateway"],
   // Messaging surface
@@ -39,7 +39,6 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   "group:nodes": ["nodes"],
   // All OpenClaw native tools (excludes provider plugins).
   "group:openclaw": [
-    "browser",
     "canvas",
     "nodes",
     "cron",
@@ -52,6 +51,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     "sessions_spawn",
     "subagents",
     "session_status",
+    "mcp",
     "memory_search",
     "memory_get",
     "web_search",

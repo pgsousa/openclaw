@@ -53,6 +53,7 @@ describe("resolveAgentConfig", () => {
       model: "anthropic/claude-opus-4",
       identity: undefined,
       groupChat: undefined,
+      domainPolicy: undefined,
       subagents: undefined,
       sandbox: undefined,
       tools: undefined,

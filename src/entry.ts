@@ -12,6 +12,14 @@ process.title = "openclaw";
 installProcessWarningFilter();
 normalizeEnv();
 
+const SUPPORTED_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux", "win32"]);
+if (!SUPPORTED_PLATFORMS.has(process.platform)) {
+  console.error(
+    `[openclaw] Unsupported platform "${process.platform}". Supported platforms: macOS, Linux, Windows.`,
+  );
+  process.exit(1);
+}
+
 if (process.argv.includes("--no-color")) {
   process.env.NO_COLOR = "1";
   process.env.FORCE_COLOR = "0";

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  AgentDomainPolicySchema,
   HeartbeatSchema,
   AgentSandboxSchema,
   AgentModelSchema,
@@ -53,6 +54,7 @@ export const AgentDefaultsSchema = z
     envelopeTimestamp: z.union([z.literal("on"), z.literal("off")]).optional(),
     envelopeElapsed: z.union([z.literal("on"), z.literal("off")]).optional(),
     contextTokens: z.number().int().positive().optional(),
+    domainPolicy: AgentDomainPolicySchema,
     cliBackends: z.record(z.string(), CliBackendSchema).optional(),
     memorySearch: MemorySearchSchema,
     contextPruning: z

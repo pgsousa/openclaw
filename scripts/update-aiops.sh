@@ -99,10 +99,32 @@ prefix="$(npm config get prefix)"
 if [[ -d "$prefix/bin" ]]; then
   export PATH="$prefix/bin:$PATH"
 fi
+export PATH="$HOME/.local/bin:$HOME/Library/pnpm:$PATH"
+
+ensure_pnpm() {
+  if command -v pnpm >/dev/null 2>&1; then
+    return
+  fi
+
+  if command -v corepack >/dev/null 2>&1; then
+    run mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pnpm" <<'EOF'
+#!/usr/bin/env bash
+exec corepack pnpm "$@"
+EOF
+    run chmod +x "$HOME/.local/bin/pnpm"
+  fi
+
+  if command -v pnpm >/dev/null 2>&1; then
+    return
+  fi
+
+  run npm install -g --prefix "$HOME/.local" pnpm
+  export PATH="$HOME/.local/bin:$PATH"
+}
+
 if ! command -v pnpm >/dev/null 2>&1; then
-  run npm install -g pnpm
-  prefix="$(npm config get prefix)"
-  export PATH="$prefix/bin:$PATH"
+  ensure_pnpm
 fi
 run pnpm -v
 

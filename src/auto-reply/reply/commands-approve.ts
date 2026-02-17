@@ -14,7 +14,8 @@ const TEXT_COMMAND_ALIAS = "accept";
 const USAGE =
   "Usage: approve <id> [allow-once|allow-always|deny] (aliases: accept, /approve, /accept)";
 const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]+$/;
-const APPROVAL_ID_PATTERN = /^[a-f0-9-]{8,}$/i;
+const APPROVAL_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DECISION_ALIASES: Record<string, "allow-once" | "allow-always" | "deny"> = {
   allow: "allow-once",
@@ -72,7 +73,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
     }
     return { ok: false, error: USAGE };
   }
-  if (tokens.length < 2) {
+  if (tokens.length !== 2) {
     return { ok: false, error: USAGE };
   }
 
@@ -80,7 +81,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
   const second = tokens[1].toLowerCase();
 
   if (DECISION_ALIASES[first]) {
-    const id = parseApprovalId(tokens.slice(1).join(" "));
+    const id = parseApprovalId(tokens[1]);
     if (!id) {
       return { ok: false, error: USAGE };
     }

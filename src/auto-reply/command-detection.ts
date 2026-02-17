@@ -7,7 +7,8 @@ import {
 } from "./commands-registry.js";
 import { isAbortTrigger } from "./reply/abort.js";
 
-const PLAIN_APPROVAL_ID_PATTERN = /^[a-f0-9-]{8,}$/i;
+const PLAIN_APPROVAL_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAIN_ALERT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]{2,180}$/;
 const APPROVAL_DECISIONS = new Set([
   "allow",
@@ -27,11 +28,18 @@ function parseApprovalCommand(
   options?: { allowLeadingSlash?: boolean },
 ): { valid: boolean; explicit: boolean } {
   const commandPrefix = options?.allowLeadingSlash ? "/?" : "";
-  const match = text.match(new RegExp(`^${commandPrefix}(approve|accept)\\s+(.+)$`, "i"));
+  const match = text.match(new RegExp(`^${commandPrefix}(approve|accept)(?:\\s+(.+))?$`, "i"));
   if (!match) {
     return { valid: false, explicit: false };
   }
-  const tokens = match[2].trim().split(/\s+/).filter(Boolean);
+  const commandArgs = match[2]?.trim();
+  if (!commandArgs) {
+    return { valid: false, explicit: true };
+  }
+  const tokens = commandArgs.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return { valid: false, explicit: true };
+  }
   if (tokens.length === 1) {
     return {
       valid: PLAIN_APPROVAL_ID_PATTERN.test(tokens[0]),
@@ -39,7 +47,7 @@ function parseApprovalCommand(
     };
   }
   if (tokens.length !== 2) {
-    return { valid: false, explicit: false };
+    return { valid: false, explicit: true };
   }
   const [first, second] = tokens;
   const firstLower = first.toLowerCase();
@@ -56,7 +64,7 @@ function parseApprovalCommand(
       explicit: true,
     };
   }
-  return { valid: false, explicit: false };
+  return { valid: false, explicit: true };
 }
 
 function parseFixCommand(
@@ -64,30 +72,26 @@ function parseFixCommand(
   options?: { allowLeadingSlash?: boolean },
 ): { valid: boolean; explicit: boolean } {
   const commandPrefix = options?.allowLeadingSlash ? "/?" : "";
-  const match = text.match(new RegExp(`^${commandPrefix}fix\\s+(.+)$`, "i"));
+  const match = text.match(new RegExp(`^${commandPrefix}fix(?:\\s+(.+))?$`, "i"));
   if (!match) {
     return { valid: false, explicit: false };
   }
-  const tokens = match[1].trim().split(/\s+/).filter(Boolean);
+  const commandArgs = match[1]?.trim();
+  if (!commandArgs) {
+    return { valid: false, explicit: true };
+  }
+  const tokens = commandArgs.split(/\s+/).filter(Boolean);
   if (tokens.length !== 1) {
-    return { valid: false, explicit: false };
+    return { valid: false, explicit: true };
   }
   const alertId = tokens[0];
   if (alertId.toLowerCase() === "it") {
-    return { valid: false, explicit: false };
+    return { valid: false, explicit: true };
   }
   return {
     valid: PLAIN_ALERT_ID_PATTERN.test(alertId),
     explicit: true,
   };
-}
-
-function isPlainApprovalCommand(text: string): boolean {
-  return parseApprovalCommand(text).valid;
-}
-
-function isPlainFixCommand(text: string): boolean {
-  return parseFixCommand(text).valid;
 }
 
 export function isDeterministicFixOrApprovalCommand(text?: string): boolean {
@@ -118,7 +122,12 @@ export function hasControlCommand(
   if (!trimmed) {
     return false;
   }
-  if (isPlainApprovalCommand(trimmed) || isPlainFixCommand(trimmed)) {
+  const fix = parseFixCommand(trimmed);
+  if (fix.explicit) {
+    return true;
+  }
+  const approval = parseApprovalCommand(trimmed);
+  if (approval.explicit) {
     return true;
   }
   const normalizedBody = normalizeCommandBody(trimmed, options);

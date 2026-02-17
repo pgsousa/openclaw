@@ -361,6 +361,38 @@ describe("/approve command", () => {
     expect(callGatewayMock).not.toHaveBeenCalled();
   });
 
+  it("rejects non-uuid ids that look like alert ids", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(
+      "approve OpenClawSyntheticOOM-1771263476 allow-once",
+      cfg,
+      { SenderId: "U123" },
+    );
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Usage: approve");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects approve with extra tokens after a valid uuid id", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`approve ${APPROVAL_ID} allow-once now`, cfg, {
+      SenderId: "U123",
+    });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Usage: approve");
+    expect(callGatewayMock).not.toHaveBeenCalled();
+  });
+
   it("does not hijack non-command plain text", async () => {
     const cfg = {
       commands: { text: true },

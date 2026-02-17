@@ -20,8 +20,12 @@ describe("hasControlCommand plain text aliases", () => {
     ).toBe(true);
   });
 
-  it("does not treat free-form approve text as control command", () => {
-    expect(hasControlCommand("approve emergency oom patch")).toBe(false);
+  it("treats malformed approve text as a control command attempt", () => {
+    expect(hasControlCommand("approve emergency oom patch")).toBe(true);
+  });
+
+  it("treats non-uuid approve ids as control command attempts", () => {
+    expect(hasControlCommand("approve OpenClawSyntheticOOM-1771263476 allow-once")).toBe(true);
   });
 });
 
@@ -48,5 +52,11 @@ describe("isDeterministicFixOrApprovalCommand", () => {
 
   it("rejects free-form approve text", () => {
     expect(isDeterministicFixOrApprovalCommand("approve emergency oom patch")).toBe(false);
+  });
+
+  it("rejects approve commands without uuid exec id", () => {
+    expect(
+      isDeterministicFixOrApprovalCommand("approve OpenClawSyntheticOOM-1771263476 allow-once"),
+    ).toBe(false);
   });
 });

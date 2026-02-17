@@ -103,14 +103,20 @@ export function registerSlackMessageEvents(params: {
   ctx.app.event("message", async ({ event, body }: SlackEventMiddlewareArgs<"message">) => {
     try {
       const raw = event as SlackMessageEvent | SlackMessageRepliedEvent;
-      const rawAny = raw as unknown as { message?: { ts?: unknown; user?: unknown } };
+      const rawAny = raw as unknown as {
+        channel?: unknown;
+        ts?: unknown;
+        thread_ts?: unknown;
+        user?: unknown;
+        message?: { ts?: unknown; user?: unknown };
+      };
       const eventId =
         typeof (body as { event_id?: unknown })?.event_id === "string"
           ? String((body as { event_id?: unknown }).event_id)
           : "unknown";
       const nested = raw.subtype === "message_replied" ? rawAny.message : undefined;
       debugLog(
-        `event=message id=${eventId} subtype=${raw.subtype ?? "none"} channel=${raw.channel ?? "unknown"} ts=${raw.ts ?? "unknown"} thread=${raw.thread_ts ?? "none"} user=${raw.user ?? "unknown"} nestedTs=${nested?.ts ?? "none"} nestedUser=${nested?.user ?? "none"}`,
+        `event=message id=${eventId} subtype=${raw.subtype ?? "none"} channel=${(typeof rawAny.channel === "string" && rawAny.channel) || "unknown"} ts=${(typeof rawAny.ts === "string" && rawAny.ts) || "unknown"} thread=${(typeof rawAny.thread_ts === "string" && rawAny.thread_ts) || "none"} user=${(typeof rawAny.user === "string" && rawAny.user) || "unknown"} nestedTs=${(typeof nested?.ts === "string" && nested.ts) || "none"} nestedUser=${(typeof nested?.user === "string" && nested.user) || "none"}`,
       );
 
       if (ctx.shouldDropMismatchedSlackEvent(body)) {

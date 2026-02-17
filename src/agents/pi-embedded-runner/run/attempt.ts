@@ -101,6 +101,23 @@ import {
 } from "./compaction-timeout.js";
 import { detectAndLoadPromptImages } from "./images.js";
 
+
+function shouldDenyExecForAiopsReadOnlyAlert(params: {
+  sessionKey?: string;
+  config?: import("../../../config/config.js").OpenClawConfig;
+}): boolean {
+  const key = (params.sessionKey ?? "").trim();
+  if (!key) {
+    return false;
+  }
+  // Only enforce on Alertmanager hook sessions.
+  if (!key.startsWith("hook:alertmanager")) {
+    return false;
+  }
+  const profile = params.config?.agents?.defaults?.domainPolicy?.profile;
+  return profile === "aiops";
+}
+
 export function injectHistoryImagesIntoMessages(
   messages: AgentMessage[],
   historyImagesByIndex: Map<number, ImageContent[]>,
@@ -277,7 +294,8 @@ export async function runEmbeddedAttempt(
       ? ["Reminder: commit your changes in this workspace after edits."]
       : undefined;
 
-    const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
+
+const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
 
     // Check if the model supports native image input
     const modelHasVision = params.model.input?.includes("image") ?? false;
@@ -319,7 +337,14 @@ export async function runEmbeddedAttempt(
             params.requireExplicitMessageTarget ?? isSubagentSessionKey(params.sessionKey),
           disableMessageTool: params.disableMessageTool,
         });
-    const tools = sanitizeToolsForGoogle({ tools: toolsRaw, provider: params.provider });
+    const shouldDenyExec = shouldDenyExecForAiopsReadOnlyAlert({
+      sessionKey: params.sessionKey ?? params.sessionId,
+      config: params.config,
+    });
+    const toolsFiltered = shouldDenyExec
+      ? toolsRaw.filter((tool) => tool.name !== "exec" && tool.name !== "process")
+      : toolsRaw;
+    const tools = sanitizeToolsForGoogle({ tools: toolsFiltered, provider: params.provider });
     logToolSchemasForGoogle({ tools, provider: params.provider });
 
     const machineName = await getMachineDisplayName();

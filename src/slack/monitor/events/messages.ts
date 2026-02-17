@@ -26,10 +26,14 @@ export function registerSlackMessageEvents(params: {
     ctx.runtime.log?.(`[slack-debug] ${line}`);
   };
 
+  const isSlackMessageRepliedEvent = (
+    event: SlackMessageEvent | SlackMessageRepliedEvent,
+  ): event is SlackMessageRepliedEvent => event.subtype === "message_replied" && "message" in event;
+
   const resolveInboundMessageEvent = (
     event: SlackMessageEvent | SlackMessageRepliedEvent,
   ): SlackMessageEvent | null => {
-    if (event.subtype !== "message_replied") {
+    if (!isSlackMessageRepliedEvent(event)) {
       return event;
     }
     const nested = event.message;
@@ -76,14 +80,22 @@ export function registerSlackMessageEvents(params: {
 
   ctx.app.event("message", async ({ event, body }: SlackEventMiddlewareArgs<"message">) => {
     try {
-      const raw = event as SlackMessageEvent | SlackMessageRepliedEvent;
+      const raw = event as
+        | SlackMessageEvent
+        | SlackMessageRepliedEvent
+        | SlackMessageChangedEvent
+        | SlackMessageDeletedEvent
+        | SlackThreadBroadcastEvent;
       const eventId =
         typeof (body as { event_id?: unknown })?.event_id === "string"
           ? String((body as { event_id?: unknown }).event_id)
           : "unknown";
-      const nested = raw.subtype === "message_replied" ? raw.message : undefined;
+      const nested = isSlackMessageRepliedEvent(raw as SlackMessageEvent | SlackMessageRepliedEvent)
+        ? (raw as SlackMessageRepliedEvent).message
+        : undefined;
+      const rawEvent = raw as SlackMessageEvent;
       debugLog(
-        `event=message id=${eventId} subtype=${raw.subtype ?? "none"} channel=${raw.channel ?? "unknown"} ts=${raw.ts ?? "unknown"} thread=${raw.thread_ts ?? "none"} user=${raw.user ?? "unknown"} nestedTs=${nested?.ts ?? "none"} nestedUser=${nested?.user ?? "none"}`,
+        `event=message id=${eventId} subtype=${rawEvent.subtype ?? "none"} channel=${rawEvent.channel ?? "unknown"} ts=${("ts" in rawEvent ? rawEvent.ts : undefined) ?? "unknown"} thread=${("thread_ts" in rawEvent ? rawEvent.thread_ts : undefined) ?? "none"} user=${("user" in rawEvent ? rawEvent.user : undefined) ?? "unknown"} nestedTs=${nested?.ts ?? "none"} nestedUser=${nested?.user ?? "none"}`,
       );
 
       if (ctx.shouldDropMismatchedSlackEvent(body)) {
@@ -91,9 +103,9 @@ export function registerSlackMessageEvents(params: {
         return;
       }
 
-      const message = event as SlackMessageEvent;
+      const message = rawEvent;
       if (message.subtype === "message_changed") {
-        const changed = event as SlackMessageChangedEvent;
+        const changed = raw as SlackMessageChangedEvent;
         const channelId = changed.channel;
         const target = await resolveSlackChannelSystemEventTarget(channelId);
         if (!target) {
@@ -107,7 +119,7 @@ export function registerSlackMessageEvents(params: {
         return;
       }
       if (message.subtype === "message_deleted") {
-        const deleted = event as SlackMessageDeletedEvent;
+        const deleted = raw as SlackMessageDeletedEvent;
         const channelId = deleted.channel;
         const target = await resolveSlackChannelSystemEventTarget(channelId);
         if (!target) {
@@ -120,7 +132,7 @@ export function registerSlackMessageEvents(params: {
         return;
       }
       if (message.subtype === "thread_broadcast") {
-        const thread = event as SlackThreadBroadcastEvent;
+        const thread = raw as SlackThreadBroadcastEvent;
         const channelId = thread.channel;
         const target = await resolveSlackChannelSystemEventTarget(channelId);
         if (!target) {

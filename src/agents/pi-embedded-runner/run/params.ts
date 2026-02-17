@@ -55,6 +55,8 @@ export type RunEmbeddedPiAgentParams = {
   requireExplicitMessageTarget?: boolean;
   /** If true, omit the message tool from the tool list. */
   disableMessageTool?: boolean;
+  /** If true, omit the cron tool from the tool list. */
+  disableCronTool?: boolean;
   sessionFile: string;
   workspaceDir: string;
   agentDir?: string;

@@ -102,7 +102,14 @@ function mergeHookFieldMaps(
   if (!baseMap && !alertMap) {
     return undefined;
   }
-  return { ...(baseMap ?? {}), ...(alertMap ?? {}) };
+  const merged: Record<string, unknown> = {};
+  if (baseMap) {
+    Object.assign(merged, baseMap);
+  }
+  if (alertMap) {
+    Object.assign(merged, alertMap);
+  }
+  return merged;
 }
 
 function isAlertBatchPayload(payload: Record<string, unknown>): boolean {
@@ -375,12 +382,11 @@ export function createHooksRequestHandler(
       return true;
     }
 
-    const payload =
-      typeof body.value === "object" && body.value !== null ? body.value : ({} as Record<string, unknown>);
+    const payload = isRecord(body.value) ? body.value : ({} as Record<string, unknown>);
     const headers = normalizeHookHeaders(req);
 
     if (subPath === "wake") {
-      const normalized = normalizeWakePayload(payload as Record<string, unknown>);
+      const normalized = normalizeWakePayload(payload);
       if (!normalized.ok) {
         sendJson(res, 400, { ok: false, error: normalized.error });
         return true;
@@ -391,7 +397,7 @@ export function createHooksRequestHandler(
     }
 
     if (subPath === "agent") {
-      const normalized = normalizeAgentPayload(payload as Record<string, unknown>);
+      const normalized = normalizeAgentPayload(payload);
       if (!normalized.ok) {
         sendJson(res, 400, { ok: false, error: normalized.error });
         return true;

@@ -61,7 +61,9 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     (delivery as { channel?: unknown } | undefined)?.channel,
   );
   const deliveryTo = normalizeTo((delivery as { to?: unknown } | undefined)?.to);
-  const deliveryThreadId = normalizeThreadId((delivery as { threadId?: unknown } | undefined)?.threadId);
+  const deliveryThreadId = normalizeThreadId(
+    (delivery as { threadId?: unknown } | undefined)?.threadId,
+  );
 
   const channel = deliveryChannel ?? payloadChannel ?? "last";
   const to = deliveryTo ?? payloadTo;

@@ -59,6 +59,8 @@ export function createOpenClawTools(options?: {
   requireExplicitMessageTarget?: boolean;
   /** If true, omit the message tool from the tool list. */
   disableMessageTool?: boolean;
+  /** If true, omit the cron tool from the tool list. */
+  disableCronTool?: boolean;
 }): AnyAgentTool[] {
   const workspaceDir = resolveWorkspaceRoot(options?.workspaceDir);
   const sessionAgentId = resolveSessionAgentId({
@@ -99,15 +101,18 @@ export function createOpenClawTools(options?: {
         sandboxRoot: options?.sandboxRoot,
         requireExplicitTarget: options?.requireExplicitMessageTarget,
       });
+  const cronTool = options?.disableCronTool
+    ? null
+    : createCronTool({
+        agentSessionKey: options?.agentSessionKey,
+      });
   const tools: AnyAgentTool[] = [
     createCanvasTool(),
     createNodesTool({
       agentSessionKey: options?.agentSessionKey,
       config: options?.config,
     }),
-    createCronTool({
-      agentSessionKey: options?.agentSessionKey,
-    }),
+    ...(cronTool ? [cronTool] : []),
     ...(messageTool ? [messageTool] : []),
     createTtsTool({
       agentChannel: options?.agentChannel,

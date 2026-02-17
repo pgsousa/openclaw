@@ -446,6 +446,63 @@ describe("exec approval handlers", () => {
     expect(resolveRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
   });
 
+  it("accepts resolve with short id prefix for long approval ids", async () => {
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+
+    const respond = vi.fn();
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    };
+
+    const fullId = "deadbeef-1111-1111-1111-111111111111";
+    const requestPromise = handlers["exec.approval.request"]({
+      params: {
+        id: fullId,
+        command: "echo ok",
+        cwd: "/tmp",
+        host: "gateway",
+        timeoutMs: 2000,
+        twoPhase: true,
+      },
+      respond,
+      context: context as unknown as Parameters<
+        (typeof handlers)["exec.approval.request"]
+      >[0]["context"],
+      client: null,
+      req: { id: "req-1", type: "req", method: "exec.approval.request" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    const resolveRespond = vi.fn();
+    await handlers["exec.approval.resolve"]({
+      params: { id: "deadbeef", decision: "allow-once" },
+      respond: resolveRespond,
+      context: context as unknown as Parameters<
+        (typeof handlers)["exec.approval.resolve"]
+      >[0]["context"],
+      client: { connect: { client: { id: "cli", displayName: "CLI" } } },
+      req: { id: "req-2", type: "req", method: "exec.approval.resolve" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    await requestPromise;
+
+    expect(resolveRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+    // Final decision response should use the full resolved id.
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ id: fullId, decision: "allow-once" }),
+      undefined,
+    );
+    const resolvedBroadcast = broadcasts.find((entry) => entry.event === "exec.approval.resolved");
+    expect(resolvedBroadcast).toBeTruthy();
+    expect((resolvedBroadcast?.payload as { id?: string })?.id).toBe(fullId);
+  });
+
   it("dedupes pending approval requests by fingerprint (no explicit id)", async () => {
     const manager = new ExecApprovalManager();
     const handlers = createExecApprovalHandlers(manager);

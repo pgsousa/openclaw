@@ -58,7 +58,9 @@ export const handleFixCommand: CommandHandler = async (params, allowTextCommands
   }
 
   if (!params.command.isAuthorizedSender) {
-    logVerbose(`Ignoring fix command from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
+    logVerbose(
+      `Ignoring fix command from unauthorized sender: ${params.command.senderId || "<unknown>"}`,
+    );
     return { shouldContinue: false };
   }
 
@@ -69,4 +71,3 @@ export const handleFixCommand: CommandHandler = async (params, allowTextCommands
   // Valid "fix <alert-id>" should continue to the model with user text unchanged.
   return null;
 };
-

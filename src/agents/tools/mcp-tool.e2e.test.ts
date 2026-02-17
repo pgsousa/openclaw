@@ -72,8 +72,9 @@ describe("mcp tool", () => {
     } satisfies OpenClawConfig;
     const tool = createMcpTool({ config: cfg, agentId: "main" });
 
-    await expect(tool.execute("mcp-server-blocked", { action: "tools", server: "kubernetes" }))
-      .rejects.toThrow(/not allowed by tools\.mcp\.allowServers/i);
+    await expect(
+      tool.execute("mcp-server-blocked", { action: "tools", server: "kubernetes" }),
+    ).rejects.toThrow(/not allowed by tools\.mcp\.allowServers/i);
   });
 
   it("uses stricter intersection when global and agent mcp allowlists differ", async () => {

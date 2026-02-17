@@ -76,9 +76,7 @@ function normalizeAllowlist(values: string[] | undefined): McpAllowlistState {
   if (!Array.isArray(values)) {
     return { configured: false, values: new Set() };
   }
-  const normalized = values
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+  const normalized = values.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
   return { configured: true, values: new Set(normalized) };
 }
 
@@ -160,9 +158,7 @@ function ensureToolAllowed(tool: string, allowTools: McpAllowlistState) {
     return;
   }
   if (!allowTools.values.has(tool)) {
-    throw new Error(
-      `MCP tool "${tool}" is not allowed by tools.mcp.allowTools (exact allowlist).`,
-    );
+    throw new Error(`MCP tool "${tool}" is not allowed by tools.mcp.allowTools (exact allowlist).`);
   }
 }
 

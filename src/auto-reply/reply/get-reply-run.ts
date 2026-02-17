@@ -91,7 +91,7 @@ function buildFixContinuationDirective(alertId: string): string {
     "Use only observed alert/thread fields; do not invent identifiers.",
     "If thread starter/context already includes namespace/pod/container/reason, treat those as present and do not mark them unknown.",
     "Do not stop at generic diagnostics when namespace/pod/container are already present.",
-    "When presenting a planned action id, use a random UUID v4 (lowercase 8-4-4-4-12).",
+    "When presenting a planned action id, use a random 8-character lowercase hex id.",
     "Never invent pseudo approval ids (for example fix-OpenClaw...-1, FIX-1, option numbers).",
     "Never use sequential action ids like oomfix-1 or option-1.",
     "Only request approval using a real runtime exec approval id: approve <id> [allow-once|allow-always|deny].",
@@ -226,11 +226,10 @@ export async function runPreparedReply(
   const isGroupChat = sessionCtx.ChatType === "group";
   const wasMentioned = ctx.WasMentioned === true;
   const isHeartbeat = opts?.isHeartbeat === true;
+  const isExecEventProvider = (sessionCtx.Provider?.trim().toLowerCase() ?? "") === "exec-event";
   const deterministicFixAlertId = extractDeterministicFixAlertId(command.commandBodyNormalized);
-  const deterministicFixDirective = deterministicFixAlertId
-    ? buildFixContinuationDirective(deterministicFixAlertId)
-    : undefined;
-  const includeThreadStarterContext = isNewSession || Boolean(deterministicFixAlertId);
+  const includeThreadStarterContext =
+    isNewSession || Boolean(deterministicFixAlertId) || (isHeartbeat && isExecEventProvider);
   const inboundContextForPrompt = includeThreadStarterContext
     ? sessionCtx
     : { ...sessionCtx, ThreadStarterBody: undefined };
@@ -368,10 +367,50 @@ export async function runPreparedReply(
   if (!resolvedThinkLevel) {
     resolvedThinkLevel = await modelState.resolveDefaultThinkingLevel();
   }
-  if (deterministicFixDirective) {
-    prefixedCommandBody = [prefixedCommandBody, deterministicFixDirective]
-      .filter(Boolean)
-      .join("\n\n");
+
+  if (deterministicFixAlertId && sessionEntry && sessionStore && sessionKey) {
+    const now = Date.now();
+    const existing = sessionEntry.remediation;
+    const startedAt =
+      existing?.profile === "aiops" && existing.alertId === deterministicFixAlertId
+        ? existing.startedAt
+        : now;
+    const next = {
+      profile: "aiops" as const,
+      status: "active" as const,
+      alertId: deterministicFixAlertId,
+      startedAt,
+      updatedAt: now,
+    };
+    const changed =
+      !existing ||
+      existing.profile !== next.profile ||
+      existing.status !== next.status ||
+      existing.alertId !== next.alertId;
+    if (changed) {
+      sessionEntry = { ...sessionEntry, remediation: next, updatedAt: now };
+      sessionStore[sessionKey] = sessionEntry;
+      if (storePath) {
+        await updateSessionStore(storePath, (store) => {
+          store[sessionKey] = { ...store[sessionKey], ...sessionEntry };
+        });
+      }
+    }
+  }
+
+  const activeRemediationAlertId =
+    sessionEntry?.remediation?.profile === "aiops" && sessionEntry.remediation.status === "active"
+      ? sessionEntry.remediation.alertId
+      : undefined;
+  const remediationAlertId =
+    deterministicFixAlertId ??
+    (isHeartbeat && isExecEventProvider ? activeRemediationAlertId : undefined);
+  const remediationDirective = remediationAlertId
+    ? buildFixContinuationDirective(remediationAlertId)
+    : undefined;
+
+  if (remediationDirective) {
+    prefixedCommandBody = [prefixedCommandBody, remediationDirective].filter(Boolean).join("\n\n");
   }
   if (operatorOverrideDirective) {
     prefixedCommandBody = [prefixedCommandBody, operatorOverrideDirective]
@@ -429,7 +468,7 @@ export async function runPreparedReply(
   const queueBodyBase = [
     threadContextNote,
     effectiveBaseBody,
-    deterministicFixDirective,
+    remediationDirective,
     operatorOverrideDirective,
   ]
     .filter(Boolean)
@@ -448,11 +487,16 @@ export async function runPreparedReply(
     command.commandBodyNormalized,
   );
   const isOperatorOverridePriority = Boolean(operatorOverrideDirective);
+  const isRemediationFollowupPriority =
+    Boolean(remediationDirective) && isHeartbeat && isExecEventProvider;
   if (
-    (isDeterministicPriorityCommand || isOperatorOverridePriority) &&
+    (isDeterministicPriorityCommand ||
+      isOperatorOverridePriority ||
+      isRemediationFollowupPriority) &&
     resolvedQueue.mode !== "interrupt"
   ) {
-    // Deterministic operator commands (fix/approve) should not be delayed by backlog.
+    // Deterministic operator commands (fix/approve) and remediation followups should not be delayed
+    // by backlog; otherwise the bot can appear stuck after approvals.
     resolvedQueue.mode = "interrupt";
     resolvedQueue.debounceMs = 0;
   }
@@ -461,9 +505,15 @@ export async function runPreparedReply(
   if (resolvedQueue.mode === "interrupt") {
     const cleared = laneSize > 0 ? clearCommandLane(sessionLaneKey) : 0;
     const aborted = abortEmbeddedPiRun(sessionIdFinal);
-    if (cleared > 0 || aborted || isDeterministicPriorityCommand || isOperatorOverridePriority) {
+    if (
+      cleared > 0 ||
+      aborted ||
+      isDeterministicPriorityCommand ||
+      isOperatorOverridePriority ||
+      isRemediationFollowupPriority
+    ) {
       logVerbose(
-        `Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted}, deterministic=${isDeterministicPriorityCommand}, override=${isOperatorOverridePriority})`,
+        `Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted}, deterministic=${isDeterministicPriorityCommand}, override=${isOperatorOverridePriority}, remediationFollowup=${isRemediationFollowupPriority})`,
       );
     }
   }

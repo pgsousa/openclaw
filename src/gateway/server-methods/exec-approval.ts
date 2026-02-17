@@ -13,6 +13,8 @@ import {
   validateExecApprovalResolveParams,
 } from "../protocol/index.js";
 
+const APPROVAL_ID_SLUG_PATTERN = /^[0-9a-f]{8}$/i;
+
 export function createExecApprovalHandlers(
   manager: ExecApprovalManager,
   opts?: { forwarder?: ExecApprovalForwarder },
@@ -187,13 +189,40 @@ export function createExecApprovalHandlers(
     },
     "exec.approval.waitDecision": async ({ params, respond }) => {
       const p = params as { id?: string };
-      const id = typeof p.id === "string" ? p.id.trim() : "";
-      if (!id) {
+      const rawId = typeof p.id === "string" ? p.id.trim() : "";
+      if (!rawId) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "id is required"));
         return;
       }
-      const decisionPromise = manager.awaitDecision(id);
+      const resolvedId = (() => {
+        const direct = manager.awaitDecision(rawId);
+        if (direct) {
+          return rawId;
+        }
+        if (!APPROVAL_ID_SLUG_PATTERN.test(rawId)) {
+          return rawId;
+        }
+        const matches = manager.findIdsByPrefix(rawId);
+        if (matches.length === 1) {
+          return matches[0];
+        }
+        return rawId;
+      })();
+      const decisionPromise = manager.awaitDecision(resolvedId);
       if (!decisionPromise) {
+        if (APPROVAL_ID_SLUG_PATTERN.test(rawId)) {
+          const matches = manager.findIdsByPrefix(rawId);
+          if (matches.length > 1) {
+            respond(
+              false,
+              undefined,
+              errorShape(ErrorCodes.INVALID_REQUEST, `ambiguous approval id prefix '${rawId}'`, {
+                details: { matches },
+              }),
+            );
+            return;
+          }
+        }
         respond(
           false,
           undefined,
@@ -202,13 +231,13 @@ export function createExecApprovalHandlers(
         return;
       }
       // Capture snapshot before await (entry may be deleted after grace period)
-      const snapshot = manager.getSnapshot(id);
+      const snapshot = manager.getSnapshot(resolvedId);
       const decision = await decisionPromise;
       // Return decision (can be null on timeout) - let clients handle via askFallback
       respond(
         true,
         {
-          id,
+          id: resolvedId,
           decision,
           createdAtMs: snapshot?.createdAtMs,
           expiresAtMs: snapshot?.expiresAtMs,
@@ -237,18 +266,36 @@ export function createExecApprovalHandlers(
         return;
       }
       const resolvedBy = client?.connect?.client?.displayName ?? client?.connect?.client?.id;
-      const ok = manager.resolve(p.id, decision, resolvedBy ?? null);
+      const rawId = p.id.trim();
+      let resolvedId = rawId;
+      let ok = manager.resolve(resolvedId, decision, resolvedBy ?? null);
+      if (!ok && APPROVAL_ID_SLUG_PATTERN.test(rawId)) {
+        const matches = manager.findOpenPendingIdsByPrefix(rawId);
+        if (matches.length === 1) {
+          resolvedId = matches[0]!;
+          ok = manager.resolve(resolvedId, decision, resolvedBy ?? null);
+        } else if (matches.length > 1) {
+          respond(
+            false,
+            undefined,
+            errorShape(ErrorCodes.INVALID_REQUEST, `ambiguous approval id prefix '${rawId}'`, {
+              details: { matches },
+            }),
+          );
+          return;
+        }
+      }
       if (!ok) {
         respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "unknown approval id"));
         return;
       }
       context.broadcast(
         "exec.approval.resolved",
-        { id: p.id, decision, resolvedBy, ts: Date.now() },
+        { id: resolvedId, decision, resolvedBy, ts: Date.now() },
         { dropIfSlow: true },
       );
       void opts?.forwarder
-        ?.handleResolved({ id: p.id, decision, resolvedBy, ts: Date.now() })
+        ?.handleResolved({ id: resolvedId, decision, resolvedBy, ts: Date.now() })
         .catch((err) => {
           context.logGateway?.error?.(`exec approvals: forward resolve failed: ${String(err)}`);
         });

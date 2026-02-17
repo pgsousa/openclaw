@@ -136,7 +136,9 @@ export function createSlackMessageHandler(params: {
       return;
     }
     if (ctx.markMessageSeen(message.channel, message.ts)) {
-      debugLog(`handler=drop reason=dedupe channel=${message.channel} ts=${message.ts ?? "unknown"}`);
+      debugLog(
+        `handler=drop reason=dedupe channel=${message.channel} ts=${message.ts ?? "unknown"}`,
+      );
       return;
     }
     const resolvedMessage = await threadTsResolver.resolve({ message, source: opts.source });

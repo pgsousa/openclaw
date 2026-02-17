@@ -22,6 +22,7 @@ import {
   appendAssistantMessageToSessionTranscript,
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
+import { logWarn } from "../../logger.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { markdownToSignalTextChunks, type SignalTextStyleRange } from "../../signal/format.js";
@@ -29,7 +30,6 @@ import { sendMessageSignal } from "../../signal/send.js";
 import { throwIfAborted } from "./abort.js";
 import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
-import { logWarn } from "../../logger.js";
 
 export type { NormalizedOutboundPayload } from "./payloads.js";
 export { normalizeOutboundPayloads } from "./payloads.js";
@@ -76,10 +76,7 @@ type ChannelHandler = {
   chunkerMode?: "text" | "markdown";
   textChunkLimit?: number;
   sendPayload?: (payload: ReplyPayload) => Promise<OutboundDeliveryResult>;
-  sendText: (
-    text: string,
-    opts?: { replyToId?: string | null },
-  ) => Promise<OutboundDeliveryResult>;
+  sendText: (text: string, opts?: { replyToId?: string | null }) => Promise<OutboundDeliveryResult>;
   sendMedia: (
     caption: string,
     mediaUrl: string,

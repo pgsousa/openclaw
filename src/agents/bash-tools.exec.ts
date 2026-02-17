@@ -61,6 +61,11 @@ import {
 import { callGatewayTool } from "./tools/gateway.js";
 import { listNodes, resolveNodeIdFromList } from "./tools/nodes-utils.js";
 
+// Prevent duplicate background waiters/executions when the LLM repeats the same
+// approval-gated command (e.g., retries in chat threads). Approval ids are global
+// across sessions, so an in-memory guard is sufficient within one gateway process.
+const activeApprovalWaiters = new Set<string>();
+
 export type ExecToolDefaults = {
   host?: ExecHost;
   security?: ExecSecurity;
@@ -648,83 +653,112 @@ export function createExecTool(
           const approvalSlug = createApprovalSlug(approvalId);
           const contextKey = `exec:${approvalId}`;
 
+          if (activeApprovalWaiters.has(approvalId)) {
+            logInfo(`exec: approval waiter already active (node id=${approvalId})`);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `${warningText}Approval required (id ${approvalSlug}). ` +
+                    "Approve to run; updates will arrive after completion.",
+                },
+              ],
+              details: {
+                status: "approval-pending",
+                approvalId,
+                approvalSlug,
+                expiresAtMs,
+                host: "node",
+                command: commandText,
+                cwd: workdir,
+                nodeId,
+              },
+            };
+          }
+
+          activeApprovalWaiters.add(approvalId);
           void (async () => {
-            let decision: string | null = null;
             try {
-              const decisionResult = await callGatewayTool<{ decision: string }>(
-                "exec.approval.waitDecision",
-                { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-                { id: approvalId },
-              );
-              const decisionValue =
-                decisionResult && typeof decisionResult === "object"
-                  ? (decisionResult as { decision?: unknown }).decision
-                  : undefined;
-              decision = typeof decisionValue === "string" ? decisionValue : null;
-            } catch {
-              emitExecSystemEvent(
-                `Exec denied (node=${nodeId} id=${approvalId}, approval-wait-failed): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-              return;
-            }
-
-            let approvedByAsk = false;
-            let approvalDecision: "allow-once" | "allow-always" | null = null;
-            let deniedReason: string | null = null;
-
-            if (decision === "deny") {
-              deniedReason = "user-denied";
-            } else if (!decision) {
-              if (askFallback === "full") {
-                approvedByAsk = true;
-                approvalDecision = "allow-once";
-              } else if (askFallback === "allowlist") {
-                // Defer allowlist enforcement to the node host.
-              } else {
-                deniedReason = "approval-timeout";
-              }
-            } else if (decision === "allow-once") {
-              approvedByAsk = true;
-              approvalDecision = "allow-once";
-            } else if (decision === "allow-always") {
-              approvedByAsk = true;
-              approvalDecision = "allow-always";
-            }
-
-            if (deniedReason) {
-              emitExecSystemEvent(
-                `Exec denied (node=${nodeId} id=${approvalId}, ${deniedReason}): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-              return;
-            }
-
-            let runningTimer: NodeJS.Timeout | null = null;
-            if (approvalRunningNoticeMs > 0) {
-              runningTimer = setTimeout(() => {
+              let decision: string | null = null;
+              try {
+                const decisionResult = await callGatewayTool<{ decision: string }>(
+                  "exec.approval.waitDecision",
+                  { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
+                  { id: approvalId },
+                );
+                const decisionValue =
+                  decisionResult && typeof decisionResult === "object"
+                    ? (decisionResult as { decision?: unknown }).decision
+                    : undefined;
+                decision = typeof decisionValue === "string" ? decisionValue : null;
+              } catch {
                 emitExecSystemEvent(
-                  `Exec running (node=${nodeId} id=${approvalId}, >${noticeSeconds}s): ${commandText}`,
+                  `Exec denied (node=${nodeId} id=${approvalId}, approval-wait-failed): ${commandText}`,
                   { sessionKey: notifySessionKey, contextKey },
                 );
-              }, approvalRunningNoticeMs);
-            }
-
-            try {
-              await callGatewayTool(
-                "node.invoke",
-                { timeoutMs: invokeTimeoutMs },
-                buildInvokeParams(approvedByAsk, approvalDecision, approvalId),
-              );
-            } catch {
-              emitExecSystemEvent(
-                `Exec denied (node=${nodeId} id=${approvalId}, invoke-failed): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-            } finally {
-              if (runningTimer) {
-                clearTimeout(runningTimer);
+                return;
               }
+
+              let approvedByAsk = false;
+              let approvalDecision: "allow-once" | "allow-always" | null = null;
+              let deniedReason: string | null = null;
+
+              if (decision === "deny") {
+                deniedReason = "user-denied";
+              } else if (!decision) {
+                if (askFallback === "full") {
+                  approvedByAsk = true;
+                  approvalDecision = "allow-once";
+                } else if (askFallback === "allowlist") {
+                  // Defer allowlist enforcement to the node host.
+                } else {
+                  deniedReason = "approval-timeout";
+                }
+              } else if (decision === "allow-once") {
+                approvedByAsk = true;
+                approvalDecision = "allow-once";
+              } else if (decision === "allow-always") {
+                approvedByAsk = true;
+                approvalDecision = "allow-always";
+              }
+
+              if (deniedReason) {
+                emitExecSystemEvent(
+                  `Exec denied (node=${nodeId} id=${approvalId}, ${deniedReason}): ${commandText}`,
+                  { sessionKey: notifySessionKey, contextKey },
+                );
+                return;
+              }
+
+              let runningTimer: NodeJS.Timeout | null = null;
+              if (approvalRunningNoticeMs > 0) {
+                runningTimer = setTimeout(() => {
+                  emitExecSystemEvent(
+                    `Exec running (node=${nodeId} id=${approvalId}, >${noticeSeconds}s): ${commandText}`,
+                    { sessionKey: notifySessionKey, contextKey },
+                  );
+                }, approvalRunningNoticeMs);
+              }
+
+              try {
+                await callGatewayTool(
+                  "node.invoke",
+                  { timeoutMs: invokeTimeoutMs },
+                  buildInvokeParams(approvedByAsk, approvalDecision, approvalId),
+                );
+              } catch {
+                emitExecSystemEvent(
+                  `Exec denied (node=${nodeId} id=${approvalId}, invoke-failed): ${commandText}`,
+                  { sessionKey: notifySessionKey, contextKey },
+                );
+              } finally {
+                if (runningTimer) {
+                  clearTimeout(runningTimer);
+                }
+              }
+            } finally {
+              activeApprovalWaiters.delete(approvalId);
             }
           })();
 
@@ -862,141 +896,169 @@ export function createExecTool(
           const approvalSlug = createApprovalSlug(approvalId);
           const contextKey = `exec:${approvalId}`;
 
+          if (activeApprovalWaiters.has(approvalId)) {
+            logInfo(`exec: approval waiter already active (gateway id=${approvalId})`);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `${warningText}Approval required (id ${approvalSlug}). ` +
+                    "Approve to run; updates will arrive after completion.",
+                },
+              ],
+              details: {
+                status: "approval-pending",
+                approvalId,
+                approvalSlug,
+                expiresAtMs,
+                host: "gateway",
+                command: params.command,
+                cwd: workdir,
+              },
+            };
+          }
+
+          activeApprovalWaiters.add(approvalId);
           void (async () => {
-            let decision: string | null = null;
             try {
-              const decisionResult = await callGatewayTool<{ decision: string }>(
-                "exec.approval.waitDecision",
-                { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-                { id: approvalId },
-              );
-              const decisionValue =
-                decisionResult && typeof decisionResult === "object"
-                  ? (decisionResult as { decision?: unknown }).decision
-                  : undefined;
-              decision = typeof decisionValue === "string" ? decisionValue : null;
-            } catch {
-              emitExecSystemEvent(
-                `Exec denied (gateway id=${approvalId}, approval-wait-failed): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-              return;
-            }
-
-            let approvedByAsk = false;
-            let deniedReason: string | null = null;
-
-            if (decision === "deny") {
-              deniedReason = "user-denied";
-            } else if (!decision) {
-              if (askFallback === "full") {
-                approvedByAsk = true;
-              } else if (askFallback === "allowlist") {
-                if (!analysisOk || !allowlistSatisfied) {
-                  deniedReason = "approval-timeout (allowlist-miss)";
-                } else {
-                  approvedByAsk = true;
-                }
-              } else {
-                deniedReason = "approval-timeout";
+              let decision: string | null = null;
+              try {
+                const decisionResult = await callGatewayTool<{ decision: string }>(
+                  "exec.approval.waitDecision",
+                  { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
+                  { id: approvalId },
+                );
+                const decisionValue =
+                  decisionResult && typeof decisionResult === "object"
+                    ? (decisionResult as { decision?: unknown }).decision
+                    : undefined;
+                decision = typeof decisionValue === "string" ? decisionValue : null;
+              } catch {
+                emitExecSystemEvent(
+                  `Exec denied (gateway id=${approvalId}, approval-wait-failed): ${commandText}`,
+                  { sessionKey: notifySessionKey, contextKey },
+                );
+                return;
               }
-            } else if (decision === "allow-once") {
-              approvedByAsk = true;
-            } else if (decision === "allow-always") {
-              approvedByAsk = true;
-              if (hostSecurity === "allowlist") {
-                for (const segment of allowlistEval.segments) {
-                  const pattern = segment.resolution?.resolvedPath ?? "";
-                  if (pattern) {
-                    addAllowlistEntry(approvals.file, agentId, pattern);
+
+              let approvedByAsk = false;
+              let deniedReason: string | null = null;
+
+              if (decision === "deny") {
+                deniedReason = "user-denied";
+              } else if (!decision) {
+                if (askFallback === "full") {
+                  approvedByAsk = true;
+                } else if (askFallback === "allowlist") {
+                  if (!analysisOk || !allowlistSatisfied) {
+                    deniedReason = "approval-timeout (allowlist-miss)";
+                  } else {
+                    approvedByAsk = true;
+                  }
+                } else {
+                  deniedReason = "approval-timeout";
+                }
+              } else if (decision === "allow-once") {
+                approvedByAsk = true;
+              } else if (decision === "allow-always") {
+                approvedByAsk = true;
+                if (hostSecurity === "allowlist") {
+                  for (const segment of allowlistEval.segments) {
+                    const pattern = segment.resolution?.resolvedPath ?? "";
+                    if (pattern) {
+                      addAllowlistEntry(approvals.file, agentId, pattern);
+                    }
                   }
                 }
               }
-            }
 
-            if (
-              hostSecurity === "allowlist" &&
-              (!analysisOk || !allowlistSatisfied) &&
-              !approvedByAsk
-            ) {
-              deniedReason = deniedReason ?? "allowlist-miss";
-            }
-
-            if (deniedReason) {
-              emitExecSystemEvent(
-                `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-              return;
-            }
-
-            if (allowlistMatches.length > 0) {
-              const seen = new Set<string>();
-              for (const match of allowlistMatches) {
-                if (seen.has(match.pattern)) {
-                  continue;
-                }
-                seen.add(match.pattern);
-                recordAllowlistUse(
-                  approvals.file,
-                  agentId,
-                  match,
-                  commandText,
-                  resolvedPath ?? undefined,
-                );
+              if (
+                hostSecurity === "allowlist" &&
+                (!analysisOk || !allowlistSatisfied) &&
+                !approvedByAsk
+              ) {
+                deniedReason = deniedReason ?? "allowlist-miss";
               }
-            }
 
-            let run: ExecProcessHandle | null = null;
-            try {
-              run = await runExecProcess({
-                command: commandText,
-                workdir,
-                env,
-                sandbox: undefined,
-                containerWorkdir: null,
-                usePty: params.pty === true && !sandbox,
-                warnings,
-                maxOutput,
-                pendingMaxOutput,
-                notifyOnExit: false,
-                notifyOnExitEmptySuccess: false,
-                scopeKey: defaults?.scopeKey,
-                sessionKey: notifySessionKey,
-                timeoutSec: effectiveTimeout,
-              });
-            } catch {
-              emitExecSystemEvent(
-                `Exec denied (gateway id=${approvalId}, spawn-failed): ${commandText}`,
-                { sessionKey: notifySessionKey, contextKey },
-              );
-              return;
-            }
-
-            markBackgrounded(run.session);
-
-            let runningTimer: NodeJS.Timeout | null = null;
-            if (approvalRunningNoticeMs > 0) {
-              runningTimer = setTimeout(() => {
+              if (deniedReason) {
                 emitExecSystemEvent(
-                  `Exec running (gateway id=${approvalId}, session=${run?.session.id}, >${noticeSeconds}s): ${commandText}`,
+                  `Exec denied (gateway id=${approvalId}, ${deniedReason}): ${commandText}`,
                   { sessionKey: notifySessionKey, contextKey },
                 );
-              }, approvalRunningNoticeMs);
-            }
+                return;
+              }
 
-            const outcome = await run.promise;
-            if (runningTimer) {
-              clearTimeout(runningTimer);
+              if (allowlistMatches.length > 0) {
+                const seen = new Set<string>();
+                for (const match of allowlistMatches) {
+                  if (seen.has(match.pattern)) {
+                    continue;
+                  }
+                  seen.add(match.pattern);
+                  recordAllowlistUse(
+                    approvals.file,
+                    agentId,
+                    match,
+                    commandText,
+                    resolvedPath ?? undefined,
+                  );
+                }
+              }
+
+              let run: ExecProcessHandle | null = null;
+              try {
+                run = await runExecProcess({
+                  command: commandText,
+                  workdir,
+                  env,
+                  sandbox: undefined,
+                  containerWorkdir: null,
+                  usePty: params.pty === true && !sandbox,
+                  warnings,
+                  maxOutput,
+                  pendingMaxOutput,
+                  notifyOnExit: false,
+                  notifyOnExitEmptySuccess: false,
+                  scopeKey: defaults?.scopeKey,
+                  sessionKey: notifySessionKey,
+                  timeoutSec: effectiveTimeout,
+                });
+              } catch {
+                emitExecSystemEvent(
+                  `Exec denied (gateway id=${approvalId}, spawn-failed): ${commandText}`,
+                  { sessionKey: notifySessionKey, contextKey },
+                );
+                return;
+              }
+
+              markBackgrounded(run.session);
+
+              let runningTimer: NodeJS.Timeout | null = null;
+              if (approvalRunningNoticeMs > 0) {
+                runningTimer = setTimeout(() => {
+                  emitExecSystemEvent(
+                    `Exec running (gateway id=${approvalId}, session=${run?.session.id}, >${noticeSeconds}s): ${commandText}`,
+                    { sessionKey: notifySessionKey, contextKey },
+                  );
+                }, approvalRunningNoticeMs);
+              }
+
+              const outcome = await run.promise;
+              if (runningTimer) {
+                clearTimeout(runningTimer);
+              }
+              const output = normalizeNotifyOutput(
+                tail(outcome.aggregated || "", DEFAULT_NOTIFY_TAIL_CHARS),
+              );
+              const exitLabel = outcome.timedOut ? "timeout" : `code ${outcome.exitCode ?? "?"}`;
+              const summary = output
+                ? `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})\n${output}`
+                : `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})`;
+              emitExecSystemEvent(summary, { sessionKey: notifySessionKey, contextKey });
+            } finally {
+              activeApprovalWaiters.delete(approvalId);
             }
-            const output = normalizeNotifyOutput(
-              tail(outcome.aggregated || "", DEFAULT_NOTIFY_TAIL_CHARS),
-            );
-            const exitLabel = outcome.timedOut ? "timeout" : `code ${outcome.exitCode ?? "?"}`;
-            const summary = output
-              ? `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})\n${output}`
-              : `Exec finished (gateway id=${approvalId}, session=${run.session.id}, ${exitLabel})`;
-            emitExecSystemEvent(summary, { sessionKey: notifySessionKey, contextKey });
           })();
 
           return {

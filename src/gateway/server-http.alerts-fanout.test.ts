@@ -2,8 +2,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { HookMappingConfig } from "../config/types.hooks.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
-import { resolveHookMappings } from "./hooks-mapping.js";
 import type { HooksConfigResolved } from "./hooks.js";
+import { resolveHookMappings } from "./hooks-mapping.js";
 
 const { readJsonBodyMock } = vi.hoisted(() => ({
   readJsonBodyMock: vi.fn(),
@@ -75,10 +75,7 @@ describe("createHooksRequestHandler alert fan-out", () => {
       ok: true,
       value: {
         status: "firing",
-        alerts: [
-          { labels: { alertname: "AlertA" } },
-          { labels: { alertname: "AlertB" } },
-        ],
+        alerts: [{ labels: { alertname: "AlertA" } }, { labels: { alertname: "AlertB" } }],
       },
     });
     const dispatchWakeHook = vi.fn();
@@ -186,8 +183,10 @@ describe("createHooksRequestHandler alert fan-out", () => {
     expect(res.statusCode).toBe(204);
     expect(dispatchWakeHook).not.toHaveBeenCalled();
     expect(dispatchAgentHook).not.toHaveBeenCalled();
-    expect((logHooks.warn as ReturnType<typeof vi.fn>).mock.calls.some((call) =>
-      String(call[0] ?? "").includes("root post blocked"),
-    )).toBe(true);
+    expect(
+      (logHooks.warn as ReturnType<typeof vi.fn>).mock.calls.some((call) =>
+        String(call[0] ?? "").includes("root post blocked"),
+      ),
+    ).toBe(true);
   });
 });

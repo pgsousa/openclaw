@@ -33,6 +33,7 @@ const AIOPS_DETERMINISTIC_CONTROL_PATTERNS: RegExp[] = [
   /^\/?fix\s+[A-Za-z][A-Za-z0-9_.:-]{2,180}\s*$/i,
   /^\/?(?:approve|accept)\s+[a-f0-9-]{8,}(?:\s+(?:allow|once|allow-once|allowonce|always|allow-always|allowalways|deny|reject|block))?\s*$/i,
   /^\/?(?:approve|accept)\s+(?:allow|once|allow-once|allowonce|always|allow-always|allowalways|deny|reject|block)\s+[a-f0-9-]{8,}\s*$/i,
+  /^\/?override\s+[\s\S]{1,1200}\s*$/i,
 ];
 
 function normalizeText(value: string): string {

@@ -47,6 +47,10 @@ export class ExecApprovalManager {
   private pending = new Map<string, PendingEntry>();
   private pendingByFingerprint = new Map<string, string>();
 
+  private normalizeIdPrefix(prefix: string): string {
+    return prefix.trim().toLowerCase();
+  }
+
   private createShortApprovalId(): string {
     let id = randomBytes(SHORT_APPROVAL_ID_BYTES).toString("hex");
     while (this.pending.has(id)) {
@@ -216,5 +220,36 @@ export class ExecApprovalManager {
   awaitDecision(recordId: string): Promise<ExecApprovalDecision | null> | null {
     const entry = this.pending.get(recordId);
     return entry?.promise ?? null;
+  }
+
+  findOpenPendingIdsByPrefix(prefix: string): string[] {
+    const normalized = this.normalizeIdPrefix(prefix);
+    if (!normalized) {
+      return [];
+    }
+    const matches: string[] = [];
+    for (const [id, entry] of this.pending.entries()) {
+      if (entry.record.resolvedAtMs !== undefined) {
+        continue;
+      }
+      if (id.toLowerCase().startsWith(normalized)) {
+        matches.push(id);
+      }
+    }
+    return matches;
+  }
+
+  findIdsByPrefix(prefix: string): string[] {
+    const normalized = this.normalizeIdPrefix(prefix);
+    if (!normalized) {
+      return [];
+    }
+    const matches: string[] = [];
+    for (const id of this.pending.keys()) {
+      if (id.toLowerCase().startsWith(normalized)) {
+        matches.push(id);
+      }
+    }
+    return matches;
   }
 }

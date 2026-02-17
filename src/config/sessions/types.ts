@@ -22,6 +22,14 @@ export type SessionOrigin = {
   threadId?: string | number;
 };
 
+export type SessionRemediationState = {
+  profile: "aiops";
+  status: "active" | "done" | "blocked";
+  alertId: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
 export type SessionEntry = {
   /**
    * Last delivered heartbeat payload (used to suppress duplicate heartbeat notifications).
@@ -101,6 +109,7 @@ export type SessionEntry = {
   lastThreadId?: string | number;
   skillsSnapshot?: SessionSkillSnapshot;
   systemPromptReport?: SessionSystemPromptReport;
+  remediation?: SessionRemediationState;
 };
 
 export function mergeSessionEntry(

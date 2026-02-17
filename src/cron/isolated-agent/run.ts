@@ -606,6 +606,9 @@ export async function runCronIsolatedAgentTurn(params: {
           agentId,
           messageChannel,
           agentAccountId: resolvedDelivery.accountId,
+          // Cron runs should not be able to manage cron jobs from within the run itself.
+          // This avoids deadlocks/timeouts from tools calling back into the gateway.
+          disableCronTool: true,
           sessionFile,
           workspaceDir,
           config: cfgWithAgentDefaults,

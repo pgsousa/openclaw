@@ -54,7 +54,7 @@ export const slackOutbound: ChannelOutboundAdapter = {
     const send = deps?.sendSlack ?? sendMessageSlack;
     // Prefer explicit threadId over replyToId to keep alert replies pinned to
     // the intended root thread when both values are present.
-    const threadTs = threadId != null ? String(threadId) : replyToId;
+    const threadTs = threadId != null ? String(threadId) : (replyToId ?? undefined);
     console.log(
       `[slack-outbound-debug] sendText to=${to} account=${accountId ?? ""} ` +
         `threadId=${String(threadId ?? "")} replyToId=${String(replyToId ?? "")} ` +
@@ -101,7 +101,7 @@ export const slackOutbound: ChannelOutboundAdapter = {
     const send = deps?.sendSlack ?? sendMessageSlack;
     // Prefer explicit threadId over replyToId to keep alert replies pinned to
     // the intended root thread when both values are present.
-    const threadTs = threadId != null ? String(threadId) : replyToId;
+    const threadTs = threadId != null ? String(threadId) : (replyToId ?? undefined);
     console.log(
       `[slack-outbound-debug] sendMedia to=${to} account=${accountId ?? ""} ` +
         `threadId=${String(threadId ?? "")} replyToId=${String(replyToId ?? "")} ` +

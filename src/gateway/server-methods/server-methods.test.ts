@@ -308,6 +308,7 @@ describe("exec approval handlers", () => {
     expect(requested).toBeTruthy();
     const id = (requested?.payload as { id?: string })?.id ?? "";
     expect(id).not.toBe("");
+    expect(id).toMatch(/^[0-9a-f]{8}$/);
 
     expect(respond).toHaveBeenCalledWith(
       true,
@@ -443,6 +444,99 @@ describe("exec approval handlers", () => {
       undefined,
     );
     expect(resolveRespond).toHaveBeenCalledWith(true, { ok: true }, undefined);
+  });
+
+  it("dedupes pending approval requests by fingerprint (no explicit id)", async () => {
+    const manager = new ExecApprovalManager();
+    const handlers = createExecApprovalHandlers(manager);
+    const broadcasts: Array<{ event: string; payload: unknown }> = [];
+
+    const respond1 = vi.fn();
+    const respond2 = vi.fn();
+    const context = {
+      broadcast: (event: string, payload: unknown) => {
+        broadcasts.push({ event, payload });
+      },
+    };
+
+    const requestP1 = handlers["exec.approval.request"]({
+      params: {
+        command: "echo ok",
+        cwd: "/tmp",
+        host: "gateway",
+        timeoutMs: 2000,
+        twoPhase: true,
+      },
+      respond: respond1,
+      context: context as unknown as Parameters<
+        (typeof handlers)["exec.approval.request"]
+      >[0]["context"],
+      client: null,
+      req: { id: "req-1", type: "req", method: "exec.approval.request" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    const requested = broadcasts.find((entry) => entry.event === "exec.approval.requested");
+    expect(requested).toBeTruthy();
+    const id = (requested?.payload as { id?: string })?.id ?? "";
+    expect(id).toMatch(/^[0-9a-f]{8}$/);
+
+    // Second request should reuse the same pending approval id without re-broadcasting.
+    const requestP2 = handlers["exec.approval.request"]({
+      params: {
+        command: "echo ok",
+        cwd: "/tmp",
+        host: "gateway",
+        timeoutMs: 2000,
+        twoPhase: true,
+      },
+      respond: respond2,
+      context: context as unknown as Parameters<
+        (typeof handlers)["exec.approval.request"]
+      >[0]["context"],
+      client: null,
+      req: { id: "req-2", type: "req", method: "exec.approval.request" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    expect(broadcasts.filter((entry) => entry.event === "exec.approval.requested").length).toBe(1);
+    expect(respond1).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ status: "accepted", id }),
+      undefined,
+    );
+    expect(respond2).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ status: "accepted", id }),
+      undefined,
+    );
+
+    const resolveRespond = vi.fn();
+    await handlers["exec.approval.resolve"]({
+      params: { id, decision: "allow-once" },
+      respond: resolveRespond,
+      context: context as unknown as Parameters<
+        (typeof handlers)["exec.approval.resolve"]
+      >[0]["context"],
+      client: { connect: { client: { id: "cli", displayName: "CLI" } } },
+      req: { id: "req-3", type: "req", method: "exec.approval.resolve" },
+      isWebchatConnect: execApprovalNoop,
+    });
+
+    await requestP1;
+    await requestP2;
+
+    // Both callers should observe the same final decision.
+    expect(respond1).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ id, decision: "allow-once" }),
+      undefined,
+    );
+    expect(respond2).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ id, decision: "allow-once" }),
+      undefined,
+    );
   });
 });
 

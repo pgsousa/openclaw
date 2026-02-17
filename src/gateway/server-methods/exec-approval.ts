@@ -67,6 +67,56 @@ export function createExecApprovalHandlers(
         resolvedPath: p.resolvedPath ?? null,
         sessionKey: p.sessionKey ?? null,
       };
+
+      const requester = {
+        clientId: client?.connect?.client?.id ?? null,
+        deviceId: client?.connect?.device?.id ?? null,
+      };
+      const fingerprint = manager.fingerprintRequest(request, requester);
+
+      // If the caller didn't specify an id, try to reuse an already-pending approval for the
+      // same request. This prevents spamming the operator with new ids for the same action
+      // when the LLM retries or the user repeats a "fix" message.
+      if (!explicitId) {
+        const pending = manager.getPendingByFingerprint(fingerprint);
+        if (pending) {
+          // Preserve single-response semantics for existing callers, while allowing
+          // twoPhase callers to get the id immediately.
+          if (twoPhase) {
+            respond(
+              true,
+              {
+                status: "accepted",
+                id: pending.id,
+                createdAtMs: pending.createdAtMs,
+                expiresAtMs: pending.expiresAtMs,
+              },
+              undefined,
+            );
+          }
+          const decisionPromise = manager.awaitDecision(pending.id);
+          if (!decisionPromise) {
+            respond(
+              false,
+              undefined,
+              errorShape(ErrorCodes.INVALID_REQUEST, "approval expired or not found"),
+            );
+            return;
+          }
+          const decision = await decisionPromise;
+          respond(
+            true,
+            {
+              id: pending.id,
+              decision,
+              createdAtMs: pending.createdAtMs,
+              expiresAtMs: pending.expiresAtMs,
+            },
+            undefined,
+          );
+          return;
+        }
+      }
       const record = manager.create(request, timeoutMs, explicitId);
       record.requestedByConnId = client?.connId ?? null;
       record.requestedByDeviceId = client?.connect?.device?.id ?? null;
@@ -77,7 +127,7 @@ export function createExecApprovalHandlers(
         import("../../infra/exec-approvals.js").ExecApprovalDecision | null
       >;
       try {
-        decisionPromise = manager.register(record, timeoutMs);
+        decisionPromise = manager.register(record, timeoutMs, fingerprint);
       } catch (err) {
         respond(
           false,

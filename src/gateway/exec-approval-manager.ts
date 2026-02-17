@@ -1,8 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { ExecApprovalDecision } from "../infra/exec-approvals.js";
 
 // Grace period to keep resolved entries for late awaitDecision calls
 const RESOLVED_ENTRY_GRACE_MS = 15_000;
+const SHORT_APPROVAL_ID_BYTES = 4; // 8 hex chars
+
+function normalizeFingerprintPart(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
 
 export type ExecApprovalRequestPayload = {
   command: string;
@@ -31,6 +36,7 @@ export type ExecApprovalRecord = {
 
 type PendingEntry = {
   record: ExecApprovalRecord;
+  fingerprint: string;
   resolve: (decision: ExecApprovalDecision | null) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -39,6 +45,37 @@ type PendingEntry = {
 
 export class ExecApprovalManager {
   private pending = new Map<string, PendingEntry>();
+  private pendingByFingerprint = new Map<string, string>();
+
+  private createShortApprovalId(): string {
+    let id = randomBytes(SHORT_APPROVAL_ID_BYTES).toString("hex");
+    while (this.pending.has(id)) {
+      id = randomBytes(SHORT_APPROVAL_ID_BYTES).toString("hex");
+    }
+    return id;
+  }
+
+  fingerprintRequest(
+    request: ExecApprovalRequestPayload,
+    requester?: { clientId?: string | null; deviceId?: string | null },
+  ): string {
+    // Fingerprint must be stable for identical requests so we can reuse a pending approval
+    // rather than spamming the operator with new ids for the same action.
+    const parts = [
+      "v1",
+      normalizeFingerprintPart(request.command),
+      normalizeFingerprintPart(request.cwd),
+      normalizeFingerprintPart(request.host),
+      normalizeFingerprintPart(request.security),
+      normalizeFingerprintPart(request.ask),
+      normalizeFingerprintPart(request.agentId),
+      normalizeFingerprintPart(request.resolvedPath),
+      normalizeFingerprintPart(request.sessionKey),
+      normalizeFingerprintPart(requester?.clientId),
+      normalizeFingerprintPart(requester?.deviceId),
+    ];
+    return createHash("sha256").update(parts.join("\n")).digest("hex");
+  }
 
   create(
     request: ExecApprovalRequestPayload,
@@ -46,7 +83,7 @@ export class ExecApprovalManager {
     id?: string | null,
   ): ExecApprovalRecord {
     const now = Date.now();
-    const resolvedId = id && id.trim().length > 0 ? id.trim() : randomUUID();
+    const resolvedId = id && id.trim().length > 0 ? id.trim() : this.createShortApprovalId();
     const record: ExecApprovalRecord = {
       id: resolvedId,
       request,
@@ -56,12 +93,32 @@ export class ExecApprovalManager {
     return record;
   }
 
+  getPendingByFingerprint(fingerprint: string): ExecApprovalRecord | null {
+    const id = this.pendingByFingerprint.get(fingerprint);
+    if (!id) {
+      return null;
+    }
+    const entry = this.pending.get(id);
+    if (!entry) {
+      this.pendingByFingerprint.delete(fingerprint);
+      return null;
+    }
+    if (entry.record.resolvedAtMs !== undefined) {
+      return null;
+    }
+    return entry.record;
+  }
+
   /**
    * Register an approval record and return a promise that resolves when the decision is made.
    * This separates registration (synchronous) from waiting (async), allowing callers to
    * confirm registration before the decision is made.
    */
-  register(record: ExecApprovalRecord, timeoutMs: number): Promise<ExecApprovalDecision | null> {
+  register(
+    record: ExecApprovalRecord,
+    timeoutMs: number,
+    fingerprint: string,
+  ): Promise<ExecApprovalDecision | null> {
     const existing = this.pending.get(record.id);
     if (existing) {
       // Idempotent: return existing promise if still pending
@@ -80,6 +137,7 @@ export class ExecApprovalManager {
     // Create entry first so we can capture it in the closure (not re-fetch from map)
     const entry: PendingEntry = {
       record,
+      fingerprint,
       resolve: resolvePromise!,
       reject: rejectPromise!,
       timer: null as unknown as ReturnType<typeof setTimeout>,
@@ -96,10 +154,14 @@ export class ExecApprovalManager {
         // Compare against captured entry instance, not re-fetched from map
         if (this.pending.get(record.id) === entry) {
           this.pending.delete(record.id);
+          if (this.pendingByFingerprint.get(fingerprint) === record.id) {
+            this.pendingByFingerprint.delete(fingerprint);
+          }
         }
       }, RESOLVED_ENTRY_GRACE_MS);
     }, timeoutMs);
     this.pending.set(record.id, entry);
+    this.pendingByFingerprint.set(fingerprint, record.id);
     return promise;
   }
 
@@ -110,7 +172,8 @@ export class ExecApprovalManager {
     record: ExecApprovalRecord,
     timeoutMs: number,
   ): Promise<ExecApprovalDecision | null> {
-    return this.register(record, timeoutMs);
+    const fingerprint = this.fingerprintRequest(record.request);
+    return this.register(record, timeoutMs, fingerprint);
   }
 
   resolve(recordId: string, decision: ExecApprovalDecision, resolvedBy?: string | null): boolean {
@@ -133,6 +196,9 @@ export class ExecApprovalManager {
       // Only delete if the entry hasn't been replaced
       if (this.pending.get(recordId) === pending) {
         this.pending.delete(recordId);
+        if (this.pendingByFingerprint.get(pending.fingerprint) === recordId) {
+          this.pendingByFingerprint.delete(pending.fingerprint);
+        }
       }
     }, RESOLVED_ENTRY_GRACE_MS);
     return true;

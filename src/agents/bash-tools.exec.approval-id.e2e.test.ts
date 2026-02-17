@@ -47,8 +47,15 @@ describe("exec approvals", () => {
 
     vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
       if (method === "exec.approval.request") {
-        // Approval request now carries the decision directly.
-        return { decision: "allow-once" };
+        return {
+          status: "accepted",
+          id: "12eedb83",
+          createdAtMs: Date.now(),
+          expiresAtMs: Date.now() + 30_000,
+        };
+      }
+      if (method === "exec.approval.waitDecision") {
+        return { id: (params as { id?: string })?.id, decision: "allow-once" };
       }
       if (method === "node.invoke") {
         invokeParams = params;
@@ -67,6 +74,7 @@ describe("exec approvals", () => {
     const result = await tool.execute("call1", { command: "ls -la" });
     expect(result.details.status).toBe("approval-pending");
     const approvalId = (result.details as { approvalId: string }).approvalId;
+    expect(approvalId).toMatch(/^[0-9a-f]{8}$/);
 
     await expect
       .poll(() => (invokeParams as { params?: { runId?: string } } | undefined)?.params?.runId, {
@@ -159,8 +167,12 @@ describe("exec approvals", () => {
       calls.push(method);
       if (method === "exec.approval.request") {
         resolveApproval?.();
-        // Return registration confirmation
-        return { status: "accepted", id: (params as { id?: string })?.id };
+        return {
+          status: "accepted",
+          id: "12eedb83",
+          createdAtMs: Date.now(),
+          expiresAtMs: Date.now() + 30_000,
+        };
       }
       if (method === "exec.approval.waitDecision") {
         return { decision: "deny" };

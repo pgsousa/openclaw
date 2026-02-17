@@ -188,6 +188,7 @@ describe("handleCommands gating", () => {
 
 describe("/approve command", () => {
   const APPROVAL_ID = "cdc9d57c-f5fc-4cd1-8e3e-5edbe1bb5548";
+  const SHORT_APPROVAL_ID = "cdc9d57c";
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -260,6 +261,28 @@ describe("/approve command", () => {
       expect.objectContaining({
         method: "exec.approval.resolve",
         params: { id: APPROVAL_ID, decision: "allow-once" },
+      }),
+    );
+  });
+
+  it("submits approval with short 8-char id", async () => {
+    const cfg = {
+      commands: { text: true },
+      channels: { slack: { allowFrom: ["*"] } },
+    } as OpenClawConfig;
+    const params = buildParams(`approve ${SHORT_APPROVAL_ID} allow-once`, cfg, {
+      SenderId: "U123",
+    });
+
+    callGatewayMock.mockResolvedValueOnce({ ok: true });
+
+    const result = await handleCommands(params);
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("Exec approval allow-once submitted");
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "exec.approval.resolve",
+        params: { id: SHORT_APPROVAL_ID, decision: "allow-once" },
       }),
     );
   });
@@ -366,11 +389,9 @@ describe("/approve command", () => {
       commands: { text: true },
       channels: { slack: { allowFrom: ["*"] } },
     } as OpenClawConfig;
-    const params = buildParams(
-      "approve OpenClawSyntheticOOM-1771263476 allow-once",
-      cfg,
-      { SenderId: "U123" },
-    );
+    const params = buildParams("approve OpenClawSyntheticOOM-1771263476 allow-once", cfg, {
+      SenderId: "U123",
+    });
 
     const result = await handleCommands(params);
     expect(result.shouldContinue).toBe(false);

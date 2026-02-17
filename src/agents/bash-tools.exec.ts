@@ -118,6 +118,154 @@ export type ExecToolDetails =
       nodeId?: string;
     };
 
+const KUBECTL_VERBS_READ_ONLY = new Set([
+  "api-resources",
+  "api-versions",
+  "auth",
+  "cluster-info",
+  "completion",
+  "describe",
+  "diff",
+  "events",
+  "explain",
+  "get",
+  "kustomize",
+  "logs",
+  "options",
+  "rollout",
+  "top",
+  "version",
+  "wait",
+  "config",
+]);
+const KUBECTL_ROLLOUT_READ_ONLY_SUBVERBS = new Set(["status", "history"]);
+const KUBECTL_CONFIG_READ_ONLY_SUBVERBS = new Set([
+  "current-context",
+  "get-clusters",
+  "get-contexts",
+  "get-users",
+  "view",
+]);
+const KUBECTL_AUTH_READ_ONLY_SUBVERBS = new Set(["can-i", "whoami"]);
+const KUBECTL_FLAGS_WITH_VALUE = new Set([
+  "-n",
+  "--namespace",
+  "--context",
+  "--kubeconfig",
+  "--cluster",
+  "--user",
+  "--as",
+  "--as-group",
+  "--token",
+  "--server",
+  "--request-timeout",
+  "-f",
+  "--filename",
+  "-l",
+  "--selector",
+  "--field-selector",
+  "-o",
+  "--output",
+]);
+
+type ExecSegmentLike = {
+  argv?: string[];
+  resolution?: {
+    executableName?: string;
+  } | null;
+};
+
+function normalizeExecutableName(value: string): string {
+  const base = value.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  return base.endsWith(".exe") ? base.slice(0, -4) : base;
+}
+
+function extractKubectlArgs(argv: string[]): string[] | null {
+  if (argv.length === 0) {
+    return null;
+  }
+  const first = normalizeExecutableName(argv[0]);
+  if (first === "kubectl") {
+    return argv.slice(1);
+  }
+  if (first === "k3s" && (argv[1]?.toLowerCase() ?? "") === "kubectl") {
+    return argv.slice(2);
+  }
+  return null;
+}
+
+function findKubectlVerbIndex(args: string[]): number {
+  let i = 0;
+  while (i < args.length) {
+    const token = args[i] ?? "";
+    if (!token) {
+      i += 1;
+      continue;
+    }
+    if (token === "--") {
+      i += 1;
+      break;
+    }
+    if (!token.startsWith("-")) {
+      break;
+    }
+    if (token.includes("=")) {
+      i += 1;
+      continue;
+    }
+    const normalized = token.toLowerCase();
+    if (KUBECTL_FLAGS_WITH_VALUE.has(normalized)) {
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  return i;
+}
+
+function isKubectlMutatingSegment(segment: ExecSegmentLike): boolean {
+  const argv = Array.isArray(segment.argv)
+    ? segment.argv.filter((part) => typeof part === "string")
+    : [];
+  if (argv.length === 0) {
+    return false;
+  }
+  const kubectlArgs = extractKubectlArgs(argv);
+  if (!kubectlArgs || kubectlArgs.length === 0) {
+    return false;
+  }
+  const verbIndex = findKubectlVerbIndex(kubectlArgs);
+  const verb = (kubectlArgs[verbIndex] ?? "").toLowerCase();
+  if (!verb) {
+    return false;
+  }
+  if (!KUBECTL_VERBS_READ_ONLY.has(verb)) {
+    return true;
+  }
+  if (verb === "rollout") {
+    const subverb = (kubectlArgs[verbIndex + 1] ?? "").toLowerCase();
+    return !KUBECTL_ROLLOUT_READ_ONLY_SUBVERBS.has(subverb);
+  }
+  if (verb === "config") {
+    const subverb = (kubectlArgs[verbIndex + 1] ?? "").toLowerCase();
+    return !KUBECTL_CONFIG_READ_ONLY_SUBVERBS.has(subverb);
+  }
+  if (verb === "auth") {
+    const subverb = (kubectlArgs[verbIndex + 1] ?? "").toLowerCase();
+    return !KUBECTL_AUTH_READ_ONLY_SUBVERBS.has(subverb);
+  }
+  return false;
+}
+
+function hasMutatingKubectlCommand(segments: ExecSegmentLike[]): boolean {
+  for (const segment of segments) {
+    if (isKubectlMutatingSegment(segment)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function createExecTool(
   defaults?: ExecToolDefaults,
   // oxlint-disable-next-line typescript/no-explicit-any
@@ -416,12 +564,15 @@ export function createExecTool(
             // Fall back to requiring approval if node approvals cannot be fetched.
           }
         }
-        const requiresAsk = requiresExecApproval({
+        const requiresAskBase = requiresExecApproval({
           ask: hostAsk,
           security: hostSecurity,
           analysisOk,
           allowlistSatisfied,
         });
+        const requiresAsk =
+          requiresAskBase ||
+          hasMutatingKubectlCommand(baseAllowlistEval.segments as ExecSegmentLike[]);
         const commandText = params.command;
         const invokeTimeoutMs = Math.max(
           10_000,
@@ -451,31 +602,59 @@ export function createExecTool(
           }) satisfies Record<string, unknown>;
 
         if (requiresAsk) {
-          const approvalId = crypto.randomUUID();
-          const approvalSlug = createApprovalSlug(approvalId);
-          const expiresAtMs = Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
-          const contextKey = `exec:${approvalId}`;
           const noticeSeconds = Math.max(1, Math.round(approvalRunningNoticeMs / 1000));
           const warningText = warnings.length ? `${warnings.join("\n")}\n\n` : "";
+
+          // Create or reuse a pending approval record on the gateway (fast response),
+          // then wait for a decision in the background.
+          let approvalId: string;
+          let expiresAtMs: number;
+          try {
+            const accepted = await callGatewayTool(
+              "exec.approval.request",
+              { timeoutMs: 30_000 },
+              {
+                command: commandText,
+                cwd: workdir,
+                host: "node",
+                security: hostSecurity,
+                ask: hostAsk,
+                agentId,
+                resolvedPath: undefined,
+                sessionKey: defaults?.sessionKey,
+                timeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
+                twoPhase: true,
+              },
+            );
+            const id =
+              accepted && typeof accepted === "object" ? (accepted as { id?: unknown }).id : null;
+            if (typeof id !== "string" || !id.trim()) {
+              throw new Error("missing approval id");
+            }
+            approvalId = id.trim();
+            const exp =
+              accepted && typeof accepted === "object"
+                ? (accepted as { expiresAtMs?: unknown }).expiresAtMs
+                : null;
+            expiresAtMs =
+              typeof exp === "number" && Number.isFinite(exp)
+                ? exp
+                : Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new Error(`exec denied: approval request failed (${message})`, { cause: err });
+          }
+
+          const approvalSlug = createApprovalSlug(approvalId);
+          const contextKey = `exec:${approvalId}`;
 
           void (async () => {
             let decision: string | null = null;
             try {
               const decisionResult = await callGatewayTool<{ decision: string }>(
-                "exec.approval.request",
+                "exec.approval.waitDecision",
                 { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-                {
-                  id: approvalId,
-                  command: commandText,
-                  cwd: workdir,
-                  host: "node",
-                  security: hostSecurity,
-                  ask: hostAsk,
-                  agentId,
-                  resolvedPath: undefined,
-                  sessionKey: defaults?.sessionKey,
-                  timeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
-                },
+                { id: approvalId },
               );
               const decisionValue =
                 decisionResult && typeof decisionResult === "object"
@@ -484,7 +663,7 @@ export function createExecTool(
               decision = typeof decisionValue === "string" ? decisionValue : null;
             } catch {
               emitExecSystemEvent(
-                `Exec denied (node=${nodeId} id=${approvalId}, approval-request-failed): ${commandText}`,
+                `Exec denied (node=${nodeId} id=${approvalId}, approval-wait-failed): ${commandText}`,
                 { sessionKey: notifySessionKey, contextKey },
               );
               return;
@@ -623,18 +802,16 @@ export function createExecTool(
         const analysisOk = allowlistEval.analysisOk;
         const allowlistSatisfied =
           hostSecurity === "allowlist" && analysisOk ? allowlistEval.allowlistSatisfied : false;
-        const requiresAsk = requiresExecApproval({
+        const requiresAskBase = requiresExecApproval({
           ask: hostAsk,
           security: hostSecurity,
           analysisOk,
           allowlistSatisfied,
         });
+        const requiresAsk =
+          requiresAskBase || hasMutatingKubectlCommand(allowlistEval.segments as ExecSegmentLike[]);
 
         if (requiresAsk) {
-          const approvalId = crypto.randomUUID();
-          const approvalSlug = createApprovalSlug(approvalId);
-          const expiresAtMs = Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
-          const contextKey = `exec:${approvalId}`;
           const resolvedPath = allowlistEval.segments[0]?.resolution?.resolvedPath;
           const noticeSeconds = Math.max(1, Math.round(approvalRunningNoticeMs / 1000));
           const commandText = params.command;
@@ -642,24 +819,56 @@ export function createExecTool(
             typeof params.timeout === "number" ? params.timeout : defaultTimeoutSec;
           const warningText = warnings.length ? `${warnings.join("\n")}\n\n` : "";
 
+          // Create or reuse a pending approval record on the gateway (fast response),
+          // then wait for a decision in the background.
+          let approvalId: string;
+          let expiresAtMs: number;
+          try {
+            const accepted = await callGatewayTool(
+              "exec.approval.request",
+              { timeoutMs: 30_000 },
+              {
+                command: commandText,
+                cwd: workdir,
+                host: "gateway",
+                security: hostSecurity,
+                ask: hostAsk,
+                agentId,
+                resolvedPath,
+                sessionKey: defaults?.sessionKey,
+                timeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
+                twoPhase: true,
+              },
+            );
+            const id =
+              accepted && typeof accepted === "object" ? (accepted as { id?: unknown }).id : null;
+            if (typeof id !== "string" || !id.trim()) {
+              throw new Error("missing approval id");
+            }
+            approvalId = id.trim();
+            const exp =
+              accepted && typeof accepted === "object"
+                ? (accepted as { expiresAtMs?: unknown }).expiresAtMs
+                : null;
+            expiresAtMs =
+              typeof exp === "number" && Number.isFinite(exp)
+                ? exp
+                : Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new Error(`exec denied: approval request failed (${message})`, { cause: err });
+          }
+
+          const approvalSlug = createApprovalSlug(approvalId);
+          const contextKey = `exec:${approvalId}`;
+
           void (async () => {
             let decision: string | null = null;
             try {
               const decisionResult = await callGatewayTool<{ decision: string }>(
-                "exec.approval.request",
+                "exec.approval.waitDecision",
                 { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-                {
-                  id: approvalId,
-                  command: commandText,
-                  cwd: workdir,
-                  host: "gateway",
-                  security: hostSecurity,
-                  ask: hostAsk,
-                  agentId,
-                  resolvedPath,
-                  sessionKey: defaults?.sessionKey,
-                  timeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
-                },
+                { id: approvalId },
               );
               const decisionValue =
                 decisionResult && typeof decisionResult === "object"
@@ -668,7 +877,7 @@ export function createExecTool(
               decision = typeof decisionValue === "string" ? decisionValue : null;
             } catch {
               emitExecSystemEvent(
-                `Exec denied (gateway id=${approvalId}, approval-request-failed): ${commandText}`,
+                `Exec denied (gateway id=${approvalId}, approval-wait-failed): ${commandText}`,
                 { sessionKey: notifySessionKey, contextKey },
               );
               return;

@@ -45,6 +45,11 @@ const NOTIFY_PRIORITIES = ["passive", "active", "timeSensitive"] as const;
 const NOTIFY_DELIVERIES = ["system", "overlay", "auto"] as const;
 const CAMERA_FACING = ["front", "back", "both"] as const;
 const LOCATION_ACCURACY = ["coarse", "balanced", "precise"] as const;
+const APPROVAL_ID_BYTES = 4; // 8 hex chars
+
+function createApprovalId(): string {
+  return crypto.randomBytes(APPROVAL_ID_BYTES).toString("hex");
+}
 
 // Flattened schema: runtime validates per-action requirements.
 const NodesToolSchema = Type.Object({
@@ -465,9 +470,9 @@ export function createNodesTool(options?: {
 
             // Node requires approval – create a pending approval request on
             // the gateway and wait for the user to approve/deny via the UI.
-            const APPROVAL_TIMEOUT_MS = 120_000;
+            const APPROVAL_TIMEOUT_MS = 300_000;
             const cmdText = command.join(" ");
-            const approvalId = crypto.randomUUID();
+            const approvalId = createApprovalId();
             const approvalResult = await callGatewayTool(
               "exec.approval.request",
               { ...gatewayOpts, timeoutMs: APPROVAL_TIMEOUT_MS + 5_000 },

@@ -14,8 +14,8 @@ const TEXT_COMMAND_ALIAS = "accept";
 const USAGE =
   "Usage: approve <id> [allow-once|allow-always|deny] (aliases: accept, /approve, /accept)";
 const SLACK_USER_ID_PATTERN = /^[UW][A-Z0-9]+$/;
-const APPROVAL_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const APPROVAL_ID_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const APPROVAL_ID_SHORT_PATTERN = /^[0-9a-f]{8}$/i;
 
 const DECISION_ALIASES: Record<string, "allow-once" | "allow-always" | "deny"> = {
   allow: "allow-once",
@@ -39,7 +39,10 @@ function parseApprovalId(raw: string): string | null {
   if (!id) {
     return null;
   }
-  return APPROVAL_ID_PATTERN.test(id) ? id : null;
+  if (APPROVAL_ID_UUID_PATTERN.test(id) || APPROVAL_ID_SHORT_PATTERN.test(id)) {
+    return id;
+  }
+  return null;
 }
 
 function parseApproveCommand(raw: string): ParsedApproveCommand | null {
@@ -53,10 +56,7 @@ function parseApproveCommand(raw: string): ParsedApproveCommand | null {
     rest = trimmed.slice(COMMAND_ALIAS.length).trim();
   } else if (lowered === TEXT_COMMAND || lowered.startsWith(`${TEXT_COMMAND} `)) {
     rest = trimmed.slice(TEXT_COMMAND.length).trim();
-  } else if (
-    lowered === TEXT_COMMAND_ALIAS ||
-    lowered.startsWith(`${TEXT_COMMAND_ALIAS} `)
-  ) {
+  } else if (lowered === TEXT_COMMAND_ALIAS || lowered.startsWith(`${TEXT_COMMAND_ALIAS} `)) {
     rest = trimmed.slice(TEXT_COMMAND_ALIAS.length).trim();
   } else {
     return null;
@@ -111,11 +111,7 @@ function buildResolvedByLabel(params: Parameters<CommandHandler>[0]): string {
   const senderName = params.ctx.SenderName?.trim() || params.ctx.SenderUsername?.trim();
   const slackSenderId = senderId.toUpperCase();
 
-  if (
-    channel === "slack" &&
-    senderId !== "unknown" &&
-    SLACK_USER_ID_PATTERN.test(slackSenderId)
-  ) {
+  if (channel === "slack" && senderId !== "unknown" && SLACK_USER_ID_PATTERN.test(slackSenderId)) {
     if (senderName) {
       return `${channel}:${senderName} (<@${slackSenderId}>)`;
     }

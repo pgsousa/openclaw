@@ -14,10 +14,12 @@ describe("hasControlCommand plain text aliases", () => {
     expect(hasControlCommand("approve cdc9d57c-f5fc-4cd1-8e3e-5edbe1bb5548")).toBe(true);
   });
 
+  it("detects plain approve command with short approval id", () => {
+    expect(hasControlCommand("approve cdc9d57c allow-once")).toBe(true);
+  });
+
   it("detects plain accept alias with explicit decision", () => {
-    expect(
-      hasControlCommand("accept cdc9d57c-f5fc-4cd1-8e3e-5edbe1bb5548 allow-once"),
-    ).toBe(true);
+    expect(hasControlCommand("accept cdc9d57c-f5fc-4cd1-8e3e-5edbe1bb5548 allow-once")).toBe(true);
   });
 
   it("treats malformed approve text as a control command attempt", () => {
@@ -46,6 +48,10 @@ describe("isDeterministicFixOrApprovalCommand", () => {
     ).toBe(true);
   });
 
+  it("matches explicit approve command in short-id form", () => {
+    expect(isDeterministicFixOrApprovalCommand("approve cdc9d57c allow-once")).toBe(true);
+  });
+
   it("rejects ambiguous fix phrasing", () => {
     expect(isDeterministicFixOrApprovalCommand("fix it")).toBe(false);
   });
@@ -54,7 +60,7 @@ describe("isDeterministicFixOrApprovalCommand", () => {
     expect(isDeterministicFixOrApprovalCommand("approve emergency oom patch")).toBe(false);
   });
 
-  it("rejects approve commands without uuid exec id", () => {
+  it("rejects approve commands without valid exec id", () => {
     expect(
       isDeterministicFixOrApprovalCommand("approve OpenClawSyntheticOOM-1771263476 allow-once"),
     ).toBe(false);

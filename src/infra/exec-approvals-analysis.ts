@@ -4,7 +4,20 @@ import path from "node:path";
 import type { ExecAllowlistEntry } from "./exec-approvals.js";
 import { splitShellArgs } from "../utils/shell-argv.js";
 
-export const DEFAULT_SAFE_BINS = ["jq", "grep", "cut", "sort", "uniq", "head", "tail", "tr", "wc"];
+// Conservative defaults for allowlist-mode tooling. `kubectl` is treated as safe only for
+// read-only verbs by bash-tools.exec.ts (mutating verbs always trigger approval).
+export const DEFAULT_SAFE_BINS = [
+  "jq",
+  "grep",
+  "cut",
+  "sort",
+  "uniq",
+  "head",
+  "tail",
+  "tr",
+  "wc",
+  "kubectl",
+];
 
 function expandHome(value: string): string {
   if (!value) {

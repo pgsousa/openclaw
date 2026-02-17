@@ -8,7 +8,7 @@ import {
 import { isAbortTrigger } from "./reply/abort.js";
 
 const PLAIN_APPROVAL_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 const PLAIN_ALERT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]{2,180}$/;
 const APPROVAL_DECISIONS = new Set([
   "allow",

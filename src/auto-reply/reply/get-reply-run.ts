@@ -95,6 +95,9 @@ function buildFixContinuationDirective(alertId: string): string {
     "Never invent pseudo approval ids (for example fix-OpenClaw...-1, FIX-1, option numbers).",
     "Never use sequential action ids like oomfix-1 or option-1.",
     "Only request approval using a real runtime exec approval id: approve <id> [allow-once|allow-always|deny].",
+    "For Kubernetes OOMKilled alerts, treat pod deletion as temporary only; do not stop there.",
+    "For controller-managed pods (Deployment/StatefulSet/DaemonSet), prefer durable remediation on the controller (resource requests/limits) over deleting a single pod.",
+    "After each approved action, verify outcome and continue with the next concrete step until alert clears or a blocker is proven.",
     "Propose one concrete mutating command with impact/risk, wait for approval, then continue with verification and next action.",
   ].join("\n");
 }
@@ -108,6 +111,7 @@ function buildOperatorOverrideDirective(command: string): string {
     "```",
     "Treat this as the preferred next mutating action candidate unless it is unsafe/invalid.",
     "Before execution, restate this exact command with impact/risk and wait for approval.",
+    "After approval and execution, report observed result and continue remediation until the alert is cleared or a hard blocker is reached.",
   ].join("\n");
 }
 

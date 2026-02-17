@@ -5,7 +5,7 @@ import { parseTimeoutMs } from "../nodes-run.js";
 /**
  * Regression test for #12098:
  * `openclaw nodes run` times out after 35s because the CLI transport timeout
- * (35s default) is shorter than the exec approval timeout (120s). The
+ * (35s default) is shorter than the exec approval timeout (300s). The
  * exec.approval.request call must use a transport timeout at least as long
  * as the approval timeout so the gateway has enough time to collect the
  * user's decision.
@@ -13,7 +13,7 @@ import { parseTimeoutMs } from "../nodes-run.js";
  * The root cause: callGatewayCli reads opts.timeout for the transport timeout.
  * Before the fix, nodes run called callGatewayCli("exec.approval.request", opts, ...)
  * without overriding opts.timeout, so the 35s CLI default raced against the
- * 120s approval wait on the gateway side. The CLI always lost.
+ * 300s approval wait on the gateway side. The CLI always lost.
  *
  * The fix: override the transport timeout for exec.approval.request to be at
  * least approvalTimeoutMs + 10_000.
@@ -52,10 +52,10 @@ describe("nodes run: approval transport timeout (#12098)", () => {
   it("fix: overriding transportTimeoutMs gives the approval enough transport time", async () => {
     const { callGatewayCli } = await import("./rpc.js");
 
-    const approvalTimeoutMs = 120_000;
+    const approvalTimeoutMs = DEFAULT_EXEC_APPROVAL_TIMEOUT_MS;
     // Mirror the production code: parseTimeoutMs(opts.timeout) ?? 0
     const transportTimeoutMs = Math.max(parseTimeoutMs("35000") ?? 0, approvalTimeoutMs + 10_000);
-    expect(transportTimeoutMs).toBe(130_000);
+    expect(transportTimeoutMs).toBe(310_000);
 
     await callGatewayCli(
       "exec.approval.request",
@@ -67,20 +67,20 @@ describe("nodes run: approval transport timeout (#12098)", () => {
     expect(callGatewaySpy).toHaveBeenCalledTimes(1);
     const callOpts = callGatewaySpy.mock.calls[0][0] as Record<string, unknown>;
     expect(callOpts.timeoutMs).toBeGreaterThanOrEqual(approvalTimeoutMs);
-    expect(callOpts.timeoutMs).toBe(130_000);
+    expect(callOpts.timeoutMs).toBe(310_000);
   });
 
   it("fix: user-specified timeout larger than approval is preserved", async () => {
     const { callGatewayCli } = await import("./rpc.js");
 
-    const approvalTimeoutMs = 120_000;
-    const userTimeout = 200_000;
+    const approvalTimeoutMs = DEFAULT_EXEC_APPROVAL_TIMEOUT_MS;
+    const userTimeout = 400_000;
     // Mirror the production code: parseTimeoutMs preserves valid large values
     const transportTimeoutMs = Math.max(
       parseTimeoutMs(String(userTimeout)) ?? 0,
       approvalTimeoutMs + 10_000,
     );
-    expect(transportTimeoutMs).toBe(200_000);
+    expect(transportTimeoutMs).toBe(400_000);
 
     await callGatewayCli(
       "exec.approval.request",
@@ -90,7 +90,7 @@ describe("nodes run: approval transport timeout (#12098)", () => {
     );
 
     const callOpts = callGatewaySpy.mock.calls[0][0] as Record<string, unknown>;
-    expect(callOpts.timeoutMs).toBe(200_000);
+    expect(callOpts.timeoutMs).toBe(400_000);
   });
 
   it("fix: non-numeric timeout falls back to approval floor", async () => {
@@ -100,7 +100,7 @@ describe("nodes run: approval transport timeout (#12098)", () => {
     // parseTimeoutMs returns undefined for garbage input, ?? 0 ensures
     // Math.max picks the approval floor instead of producing NaN
     const transportTimeoutMs = Math.max(parseTimeoutMs("foo") ?? 0, approvalTimeoutMs + 10_000);
-    expect(transportTimeoutMs).toBe(130_000);
+    expect(transportTimeoutMs).toBe(310_000);
 
     await callGatewayCli(
       "exec.approval.request",
@@ -110,6 +110,6 @@ describe("nodes run: approval transport timeout (#12098)", () => {
     );
 
     const callOpts = callGatewaySpy.mock.calls[0][0] as Record<string, unknown>;
-    expect(callOpts.timeoutMs).toBe(130_000);
+    expect(callOpts.timeoutMs).toBe(310_000);
   });
 });

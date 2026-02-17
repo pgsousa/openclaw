@@ -163,7 +163,7 @@ describe("exec approvals", () => {
       resolveApproval = resolve;
     });
 
-    vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+    vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, _params) => {
       calls.push(method);
       if (method === "exec.approval.request") {
         resolveApproval?.();

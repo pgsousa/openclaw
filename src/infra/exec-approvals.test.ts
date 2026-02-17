@@ -20,6 +20,7 @@ import {
   resolveExecApprovalsFromFile,
   type ExecAllowlistEntry,
   type ExecApprovalsFile,
+  resolveSafeBins,
 } from "./exec-approvals.js";
 
 function makePathEnv(binDir: string): NodeJS.ProcessEnv {
@@ -492,6 +493,43 @@ describe("exec approvals allowlist evaluation", () => {
       cwd: "/tmp",
     });
     expect(result.allowlistSatisfied).toBe(true);
+  });
+
+  it("does not require approval for read-only kubectl chains that include '; echo'", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const binDir = path.join(dir, "bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const kubectlExe = path.join(binDir, "kubectl");
+    const echoExe = path.join(binDir, "echo");
+    fs.writeFileSync(kubectlExe, "");
+    fs.writeFileSync(echoExe, "");
+    fs.chmodSync(kubectlExe, 0o755);
+    fs.chmodSync(echoExe, 0o755);
+
+    const command =
+      "kubectl -n oom-test get pod oom-demo-oneshot " +
+      "-o jsonpath='{.metadata.ownerReferences}' ; echo";
+    const analysis = evaluateShellAllowlist({
+      command,
+      allowlist: [],
+      safeBins: resolveSafeBins(undefined),
+      cwd: dir,
+      env: makePathEnv(binDir),
+      platform: process.platform,
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(analysis.allowlistSatisfied).toBe(true);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: analysis.analysisOk,
+        allowlistSatisfied: analysis.allowlistSatisfied,
+      }),
+    ).toBe(false);
   });
 });
 

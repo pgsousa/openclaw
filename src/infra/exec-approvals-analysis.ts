@@ -17,6 +17,11 @@ export const DEFAULT_SAFE_BINS = [
   "tr",
   "wc",
   "kubectl",
+  // Common "glue" binaries used in read-only diagnostics command chains.
+  // NOTE: redirection (`>`, `<`) and subshell tokens are rejected by the shell analyzer,
+  // so allowing these does not enable file writes via simple shell plumbing.
+  "echo",
+  "true",
 ];
 
 function expandHome(value: string): string {

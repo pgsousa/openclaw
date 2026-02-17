@@ -234,10 +234,8 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.commandBody).toContain(
       "[Operator remediation directive for OpenClawPodOOMKilled]",
     );
-    expect(call?.commandBody).toContain("use a random UUID v4");
-    expect(call?.commandBody).toContain(
-      "Only request approval using a real runtime exec approval id",
-    );
+    expect(call?.commandBody).toContain("Do not invent approval ids or action ids.");
+    expect(call?.commandBody).toContain("call the exec tool to create a runtime exec approval");
   });
 
   it("injects operator override directive for 'faz antes assim' phrasing", async () => {

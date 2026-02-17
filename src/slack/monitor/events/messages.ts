@@ -26,27 +26,53 @@ export function registerSlackMessageEvents(params: {
     ctx.runtime.log?.(`[slack-debug] ${line}`);
   };
 
-  const resolveInboundMessageEvent = (
-    event: SlackMessageEvent | SlackMessageRepliedEvent,
-  ): SlackMessageEvent | null => {
-    if (event.subtype !== "message_replied") {
-      return event;
+  const resolveInboundMessageEvent = (event: SlackMessageEvent | SlackMessageRepliedEvent) => {
+    // Slack "message_replied" events wrap the real message inside `event.message`.
+    // Type shapes vary across Bolt/Slack payloads; keep this logic permissive and validate at runtime.
+    const raw = event as unknown as {
+      subtype?: unknown;
+      channel?: unknown;
+      channel_type?: unknown;
+      event_ts?: unknown;
+      message?: unknown;
+    };
+
+    if (raw.subtype !== "message_replied") {
+      return event as SlackMessageEvent;
     }
-    const nested = event.message;
+
+    const nested = (raw.message ?? null) as null | {
+      channel?: unknown;
+      channel_type?: unknown;
+      event_ts?: unknown;
+    };
     if (!nested) {
       return null;
     }
-    const channel = nested.channel ?? event.channel;
-    if (!channel) {
+
+    const channel =
+      (typeof nested.channel === "string" && nested.channel) ||
+      (typeof raw.channel === "string" && raw.channel)
+        ? (nested.channel ?? raw.channel)
+        : undefined;
+
+    if (typeof channel !== "string" || !channel) {
       return null;
     }
+
     return {
       type: "message",
-      ...nested,
+      ...(nested as object),
       channel,
-      channel_type: nested.channel_type ?? event.channel_type,
-      event_ts: nested.event_ts ?? event.event_ts,
-    };
+      channel_type:
+        typeof nested.channel_type === "string"
+          ? nested.channel_type
+          : (raw.channel_type as SlackMessageEvent["channel_type"]),
+      event_ts:
+        typeof nested.event_ts === "string"
+          ? nested.event_ts
+          : (raw.event_ts as SlackMessageEvent["event_ts"]),
+    } as SlackMessageEvent;
   };
 
   const resolveSlackChannelSystemEventTarget = async (channelId: string | undefined) => {
@@ -77,11 +103,12 @@ export function registerSlackMessageEvents(params: {
   ctx.app.event("message", async ({ event, body }: SlackEventMiddlewareArgs<"message">) => {
     try {
       const raw = event as SlackMessageEvent | SlackMessageRepliedEvent;
+      const rawAny = raw as unknown as { message?: { ts?: unknown; user?: unknown } };
       const eventId =
         typeof (body as { event_id?: unknown })?.event_id === "string"
           ? String((body as { event_id?: unknown }).event_id)
           : "unknown";
-      const nested = raw.subtype === "message_replied" ? raw.message : undefined;
+      const nested = raw.subtype === "message_replied" ? rawAny.message : undefined;
       debugLog(
         `event=message id=${eventId} subtype=${raw.subtype ?? "none"} channel=${raw.channel ?? "unknown"} ts=${raw.ts ?? "unknown"} thread=${raw.thread_ts ?? "none"} user=${raw.user ?? "unknown"} nestedTs=${nested?.ts ?? "none"} nestedUser=${nested?.user ?? "none"}`,
       );

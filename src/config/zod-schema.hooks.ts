@@ -62,6 +62,7 @@ export const HookMappingSchema = z
       ])
       .optional(),
     to: z.string().optional(),
+    threadId: z.string().optional(),
     model: z.string().optional(),
     thinking: z.string().optional(),
     timeoutSeconds: z.number().int().positive().optional(),

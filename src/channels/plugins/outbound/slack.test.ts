@@ -77,6 +77,23 @@ describe("slack outbound hook wiring", () => {
     });
   });
 
+  it("prefers threadId over replyToId when both are present", async () => {
+    vi.mocked(getGlobalHookRunner).mockReturnValue(null);
+
+    await slackOutbound.sendText({
+      to: "C123",
+      text: "hello",
+      accountId: "default",
+      replyToId: "1111.2222",
+      threadId: "9999.8888",
+    });
+
+    expect(sendMessageSlack).toHaveBeenCalledWith("C123", "hello", {
+      threadTs: "9999.8888",
+      accountId: "default",
+    });
+  });
+
   it("calls message_sending hook before sending", async () => {
     const mockRunner = {
       hasHooks: vi.fn().mockReturnValue(true),

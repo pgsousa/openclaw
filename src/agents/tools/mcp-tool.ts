@@ -4,8 +4,10 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { OpenClawConfig } from "../../config/config.js";
 import { resolveMcporterConfigPath } from "../../config/mcp.js";
 import { resolveUserPath } from "../../utils.js";
+import { resolveAgentConfig } from "../agent-scope.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, jsonResult, readNumberParam, readStringParam } from "./common.js";
 
@@ -13,9 +15,6 @@ const MCP_ACTIONS = ["servers", "tools", "call"] as const;
 const MCP_OUTPUT_FORMATS = ["json", "text"] as const;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DISABLE_BUNDLED_MCPORTER_ENV = "OPENCLAW_MCP_DISABLE_BUNDLED";
-const MCP_ALLOW_MUTATIONS_ENV = "OPENCLAW_MCP_ALLOW_MUTATIONS";
-const MCP_ALLOWED_SERVERS_ENV = "OPENCLAW_MCP_ALLOWED_SERVERS";
-const DEFAULT_ALLOWED_SERVERS = ["prometheus", "kibana", "opensearch", "kubernetes", "ceph"];
 
 type McporterCommand = {
   command: string;
@@ -62,6 +61,110 @@ type McporterRunResult = {
   stderr: string;
   code: number | null;
 };
+
+type McpAllowlistState = {
+  configured: boolean;
+  values: Set<string>;
+};
+
+type McpToolOptions = {
+  config?: OpenClawConfig;
+  agentId?: string;
+};
+
+function normalizeAllowlist(values: string[] | undefined): McpAllowlistState {
+  if (!Array.isArray(values)) {
+    return { configured: false, values: new Set() };
+  }
+  const normalized = values
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return { configured: true, values: new Set(normalized) };
+}
+
+function mergeAllowlists(params: {
+  globalValues: string[] | undefined;
+  agentValues: string[] | undefined;
+}): McpAllowlistState {
+  const global = normalizeAllowlist(params.globalValues);
+  const agent = normalizeAllowlist(params.agentValues);
+  if (global.configured && agent.configured) {
+    const intersection = new Set<string>();
+    for (const value of agent.values) {
+      if (global.values.has(value)) {
+        intersection.add(value);
+      }
+    }
+    return { configured: true, values: intersection };
+  }
+  if (agent.configured) {
+    return agent;
+  }
+  if (global.configured) {
+    return global;
+  }
+  return { configured: false, values: new Set() };
+}
+
+function resolveMcpAllowlists(options: McpToolOptions): {
+  allowServers: McpAllowlistState;
+  allowTools: McpAllowlistState;
+} {
+  const globalMcp = options.config?.tools?.mcp;
+  const agentMcp =
+    options.config && options.agentId
+      ? resolveAgentConfig(options.config, options.agentId)?.tools?.mcp
+      : undefined;
+  return {
+    allowServers: mergeAllowlists({
+      globalValues: globalMcp?.allowServers,
+      agentValues: agentMcp?.allowServers,
+    }),
+    allowTools: mergeAllowlists({
+      globalValues: globalMcp?.allowTools,
+      agentValues: agentMcp?.allowTools,
+    }),
+  };
+}
+
+function parseToolReference(tool: string): { full: string; server: string } {
+  const trimmed = tool.trim();
+  const firstDot = trimmed.indexOf(".");
+  if (firstDot <= 0 || firstDot === trimmed.length - 1) {
+    throw new Error('MCP tool must be in "server.tool" format.');
+  }
+  const server = trimmed.slice(0, firstDot).trim();
+  const name = trimmed.slice(firstDot + 1).trim();
+  if (!server || !name) {
+    throw new Error('MCP tool must be in "server.tool" format.');
+  }
+  return {
+    full: `${server}.${name}`,
+    server,
+  };
+}
+
+function ensureServerAllowed(server: string, allowServers: McpAllowlistState) {
+  if (!allowServers.configured) {
+    return;
+  }
+  if (!allowServers.values.has(server)) {
+    throw new Error(
+      `MCP server "${server}" is not allowed by tools.mcp.allowServers (exact allowlist).`,
+    );
+  }
+}
+
+function ensureToolAllowed(tool: string, allowTools: McpAllowlistState) {
+  if (!allowTools.configured) {
+    return;
+  }
+  if (!allowTools.values.has(tool)) {
+    throw new Error(
+      `MCP tool "${tool}" is not allowed by tools.mcp.allowTools (exact allowlist).`,
+    );
+  }
+}
 
 function resolveMcporterCommand(): McporterCommand {
   if (process.env[DISABLE_BUNDLED_MCPORTER_ENV] !== "1") {
@@ -189,24 +292,7 @@ function resolveEffectiveConfigPath(value: string | undefined): string | undefin
   return existsSync(defaultPath) ? defaultPath : undefined;
 }
 
-function resolveAllowedServers(): Set<string> {
-  const raw = process.env[MCP_ALLOWED_SERVERS_ENV]?.trim();
-  const values = raw
-    ? raw
-        .split(",")
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean)
-    : DEFAULT_ALLOWED_SERVERS;
-  return new Set(values);
-}
-
-function isMutatingToolName(name: string): boolean {
-  return /(?:create|update|delete|remove|patch|apply|exec|run|restart|stop|start|scale|drain|cordon|uncordon|kill|shell|command|write|set)/i.test(
-    name,
-  );
-}
-
-export function createMcpTool(): AnyAgentTool {
+export function createMcpTool(options: McpToolOptions = {}): AnyAgentTool {
   return {
     label: "MCP",
     name: "mcp",
@@ -219,6 +305,7 @@ export function createMcpTool(): AnyAgentTool {
       const output = resolveOutput(readStringParam(params, "output"));
       const configPath = resolveEffectiveConfigPath(readStringParam(params, "configPath"));
       const timeoutMs = resolveTimeoutMs(readNumberParam(params, "timeoutSeconds"));
+      const allowlists = resolveMcpAllowlists(options);
 
       const baseArgs = configPath ? ["--config", configPath] : [];
       let commandArgs: string[] = [];
@@ -227,33 +314,15 @@ export function createMcpTool(): AnyAgentTool {
         commandArgs = [...baseArgs, "list", "--output", output];
       } else if (action === "tools") {
         const server = readStringParam(params, "server", { required: true });
+        ensureServerAllowed(server.trim(), allowlists.allowServers);
         commandArgs = [...baseArgs, "list", server, "--schema", "--output", output];
       } else if (action === "call") {
         const tool = readStringParam(params, "tool", { required: true });
+        const parsedTool = parseToolReference(tool);
+        ensureServerAllowed(parsedTool.server, allowlists.allowServers);
+        ensureToolAllowed(parsedTool.full, allowlists.allowTools);
         const argsJson = readStringParam(params, "argsJson");
-
-        const [serverRaw, ...toolParts] = tool.split(".");
-        const server = serverRaw?.trim().toLowerCase();
-        const toolName = toolParts.join(".").trim();
-        if (!server || !toolName) {
-          throw new Error('Invalid tool format. Expected "server.tool".');
-        }
-
-        const allowedServers = resolveAllowedServers();
-        if (!allowedServers.has(server)) {
-          throw new Error(
-            `MCP server "${server}" is not allowed. Allowed servers: ${Array.from(allowedServers).join(", ")}`,
-          );
-        }
-
-        const allowMutations = process.env[MCP_ALLOW_MUTATIONS_ENV] === "1";
-        if (!allowMutations && isMutatingToolName(toolName)) {
-          throw new Error(
-            `Blocked mutating MCP call "${tool}". This gateway is in read-only MCP mode. Set ${MCP_ALLOW_MUTATIONS_ENV}=1 to override.`,
-          );
-        }
-
-        commandArgs = [...baseArgs, "call", tool, "--output", output];
+        commandArgs = [...baseArgs, "call", parsedTool.full, "--output", output];
         if (argsJson) {
           commandArgs.push("--args", argsJson);
         }

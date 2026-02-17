@@ -36,6 +36,7 @@ import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { readLatestAssistantReply } from "../../agents/tools/agent-step.js";
 import { deriveSessionTotalTokens, hasNonzeroUsage } from "../../agents/usage.js";
 import { ensureAgentWorkspace } from "../../agents/workspace.js";
+import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import {
   normalizeThinkLevel,
   normalizeVerboseLevel,
@@ -98,6 +99,13 @@ function resolveCronDeliveryBestEffort(job: CronJob): boolean {
     return job.payload.bestEffortDeliver;
   }
   return false;
+}
+
+function hasDeliveryThreadId(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 const CRON_SUBAGENT_WAIT_POLL_MS = 500;
@@ -474,6 +482,7 @@ export async function runCronIsolatedAgentTurn(params: {
   const resolvedDelivery = await resolveDeliveryTarget(cfgWithAgentDefaults, agentId, {
     channel: deliveryPlan.channel ?? "last",
     to: deliveryPlan.to,
+    threadId: deliveryPlan.threadId,
   });
 
   const { formattedTime, timeLine } = resolveCronStyleNow(params.cfg, now);
@@ -622,7 +631,33 @@ export async function runCronIsolatedAgentTurn(params: {
     return withRunSession({ status: "error", error: String(err) });
   }
 
-  const payloads = runResult.payloads ?? [];
+  let payloads = runResult.payloads ?? [];
+  if (deliveryRequested && pickLastDeliverablePayload(payloads) === undefined) {
+    const fallbackReply = (await readLatestAssistantReply({ sessionKey: agentSessionKey }))?.trim();
+    if (fallbackReply && fallbackReply.toUpperCase() !== SILENT_REPLY_TOKEN.toUpperCase()) {
+      const parsedFallback = parseReplyDirectives(fallbackReply, {
+        silentToken: SILENT_REPLY_TOKEN,
+      });
+      const fallbackText = parsedFallback.text?.trim() || undefined;
+      const fallbackMediaUrls =
+        parsedFallback.mediaUrls?.filter((item) => item.trim().length > 0) ?? [];
+      const fallbackMediaUrl = parsedFallback.mediaUrl ?? fallbackMediaUrls[0];
+      if (fallbackText || fallbackMediaUrl || fallbackMediaUrls.length > 0) {
+        // Some provider/tool-call paths can persist an assistant reply to transcript
+        // while yielding no final payloads; recover that reply for delivery.
+        payloads = [
+          {
+            text: fallbackText,
+            mediaUrl: fallbackMediaUrl,
+            mediaUrls: fallbackMediaUrls.length > 0 ? fallbackMediaUrls : undefined,
+          },
+        ];
+        logWarn(
+          `[cron:${params.job.id}] no deliverable payloads from embedded run; using transcript fallback`,
+        );
+      }
+    }
+  }
 
   // Update token+model fields in the session store.
   {
@@ -694,6 +729,7 @@ export async function runCronIsolatedAgentTurn(params: {
   let delivered = skipMessagingToolDelivery;
   if (deliveryRequested && !skipHeartbeatDelivery && !skipMessagingToolDelivery) {
     if (resolvedDelivery.error) {
+      logWarn(`[cron:${params.job.id}] ${resolvedDelivery.error.message}`);
       if (!deliveryBestEffort) {
         return withRunSession({
           status: "error",
@@ -707,6 +743,32 @@ export async function runCronIsolatedAgentTurn(params: {
     }
     if (!resolvedDelivery.to) {
       const message = "cron delivery target is missing";
+      logWarn(`[cron:${params.job.id}] ${message}`);
+      if (!deliveryBestEffort) {
+        return withRunSession({
+          status: "error",
+          error: message,
+          summary,
+          outputText,
+        });
+      }
+      logWarn(`[cron:${params.job.id}] ${message}`);
+      return withRunSession({ status: "ok", summary, outputText });
+    }
+    const requiresSlackThread =
+      agentPayload?.requireThreadId === true && resolvedDelivery.channel === "slack";
+    if (requiresSlackThread) {
+      logWarn(
+        `[cron:${params.job.id}] slack thread debug ` +
+          `payload.threadId=${String(agentPayload?.threadId ?? "")} ` +
+          `plan.threadId=${String(deliveryPlan.threadId ?? "")} ` +
+          `resolved.threadId=${String(resolvedDelivery.threadId ?? "")} ` +
+          `to=${resolvedDelivery.to ?? ""}`,
+      );
+    }
+    if (requiresSlackThread && !hasDeliveryThreadId(resolvedDelivery.threadId)) {
+      const message = "cron Slack delivery requires threadId; refusing root-channel post";
+      logWarn(`[cron:${params.job.id}] ${message}`);
       if (!deliveryBestEffort) {
         return withRunSession({
           status: "error",
@@ -725,6 +787,15 @@ export async function runCronIsolatedAgentTurn(params: {
     // identity, or structured content, prefer direct outbound delivery to send
     // the actual cron output without summarization.
     const hasExplicitDeliveryTarget = Boolean(deliveryPlan.to);
+    if (requiresSlackThread) {
+      logWarn(
+        `[cron:${params.job.id}] slack branch debug ` +
+          `explicitTarget=${String(hasExplicitDeliveryTarget)} ` +
+          `identity=${String(Boolean(identity))} ` +
+          `structured=${String(deliveryPayloadHasStructuredContent)} ` +
+          `direct=${String(deliveryPayloadHasStructuredContent || Boolean(identity) || hasExplicitDeliveryTarget)}`,
+      );
+    }
     if (deliveryPayloadHasStructuredContent || identity || hasExplicitDeliveryTarget) {
       try {
         const payloadsForDelivery =
@@ -747,8 +818,15 @@ export async function runCronIsolatedAgentTurn(params: {
             deps: createOutboundSendDeps(params.deps),
           });
           delivered = deliveryResults.length > 0;
+        } else {
+          logWarn(`[cron:${params.job.id}] no payloads available for direct outbound delivery`);
         }
       } catch (err) {
+        logWarn(
+          `[cron:${params.job.id}] direct outbound delivery failed ` +
+            `(channel=${resolvedDelivery.channel} to=${resolvedDelivery.to ?? "<none>"} ` +
+            `threadId=${String(resolvedDelivery.threadId ?? "")}): ${String(err)}`,
+        );
         if (!deliveryBestEffort) {
           return withRunSession({ status: "error", summary, outputText, error: String(err) });
         }

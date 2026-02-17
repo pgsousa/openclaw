@@ -1,0 +1,25 @@
+display_information:
+  name: OpenClaw Alert Publisher
+  description: Posts Alertmanager alert summaries to Slack channels.
+  background_color: "#1F2937"
+
+features:
+  bot_user:
+    display_name: Alert Publisher
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.public
+
+settings:
+  event_subscriptions:
+    request_url: ""
+    bot_events: []
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

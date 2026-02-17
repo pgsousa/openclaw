@@ -18,6 +18,7 @@ export type HookMappingResolved = {
   allowUnsafeExternalContent?: boolean;
   channel?: HookMessageChannel;
   to?: string;
+  threadId?: string;
   model?: string;
   thinking?: string;
   timeoutSeconds?: number;
@@ -53,6 +54,7 @@ export type HookAction =
       allowUnsafeExternalContent?: boolean;
       channel?: HookMessageChannel;
       to?: string;
+      threadId?: string;
       model?: string;
       thinking?: string;
       timeoutSeconds?: number;
@@ -93,6 +95,7 @@ type HookTransformResult = Partial<{
   allowUnsafeExternalContent: boolean;
   channel: HookMessageChannel;
   to: string;
+  threadId: string;
   model: string;
   thinking: string;
   timeoutSeconds: number;
@@ -213,6 +216,7 @@ function normalizeHookMapping(
     allowUnsafeExternalContent: mapping.allowUnsafeExternalContent,
     channel: mapping.channel,
     to: mapping.to,
+    threadId: mapping.threadId,
     model: mapping.model,
     thinking: mapping.thinking,
     timeoutSeconds: mapping.timeoutSeconds,
@@ -264,6 +268,7 @@ function buildActionFromMapping(
       allowUnsafeExternalContent: mapping.allowUnsafeExternalContent,
       channel: mapping.channel,
       to: renderOptional(mapping.to, ctx),
+      threadId: renderOptional(mapping.threadId, ctx),
       model: renderOptional(mapping.model, ctx),
       thinking: renderOptional(mapping.thinking, ctx),
       timeoutSeconds: mapping.timeoutSeconds,
@@ -305,6 +310,7 @@ function mergeAction(
         : baseAgent?.allowUnsafeExternalContent,
     channel: override.channel ?? baseAgent?.channel,
     to: override.to ?? baseAgent?.to,
+    threadId: override.threadId ?? baseAgent?.threadId,
     model: override.model ?? baseAgent?.model,
     thinking: override.thinking ?? baseAgent?.thinking,
     timeoutSeconds: override.timeoutSeconds ?? baseAgent?.timeoutSeconds,

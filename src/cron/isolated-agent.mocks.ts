@@ -13,3 +13,7 @@ vi.mock("../agents/model-catalog.js", () => ({
 vi.mock("../agents/subagent-announce.js", () => ({
   runSubagentAnnounceFlow: vi.fn(),
 }));
+
+vi.mock("../agents/tools/agent-step.js", () => ({
+  readLatestAssistantReply: vi.fn(),
+}));

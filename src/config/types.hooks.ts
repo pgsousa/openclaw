@@ -34,6 +34,7 @@ export type HookMappingConfig = {
     | "imessage"
     | "msteams";
   to?: string;
+  threadId?: string;
   /** Override model for this hook (provider/model or alias). */
   model?: string;
   thinking?: string;

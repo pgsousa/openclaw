@@ -205,6 +205,19 @@ export type ExecToolConfig = {
   };
 };
 
+export type McpToolsConfig = {
+  /**
+   * Explicit allowlist of MCP servers for discovery and calls.
+   * When configured, requests for servers outside this list are denied.
+   */
+  allowServers?: string[];
+  /**
+   * Explicit allowlist of callable MCP tools as exact "server.tool" values.
+   * When configured, mcp action=call is denied unless the tool matches exactly.
+   */
+  allowTools?: string[];
+};
+
 export type FsToolsConfig = {
   /**
    * Restrict filesystem tools (read/write/edit/apply_patch) to the agent workspace directory.
@@ -231,6 +244,8 @@ export type AgentToolsConfig = {
   };
   /** Exec tool defaults for this agent. */
   exec?: ExecToolConfig;
+  /** MCP tool allowlists for this agent. */
+  mcp?: McpToolsConfig;
   /** Filesystem tool path guards. */
   fs?: FsToolsConfig;
   sandbox?: {
@@ -462,6 +477,8 @@ export type ToolsConfig = {
   };
   /** Exec tool defaults. */
   exec?: ExecToolConfig;
+  /** MCP tool allowlists (exact server/tool entries). */
+  mcp?: McpToolsConfig;
   /** Filesystem tool path guards. */
   fs?: FsToolsConfig;
   /** Sub-agent tool policy defaults (deny wins). */

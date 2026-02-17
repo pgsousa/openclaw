@@ -102,6 +102,32 @@ describe("hooks mapping", () => {
     }
   });
 
+  it("passes threadId override from mapping", async () => {
+    const mappings = resolveHookMappings({
+      mappings: [
+        {
+          id: "threaded",
+          match: { path: "gmail" },
+          action: "agent",
+          messageTemplate: "Subject: {{messages[0].subject}}",
+          channel: "slack",
+          to: "channel:C123",
+          threadId: "{{messages[0].threadTs}}",
+        },
+      ],
+    });
+    const result = await applyHookMappings(mappings, {
+      payload: { messages: [{ subject: "Hello", threadTs: "123.456" }] },
+      headers: {},
+      url: baseUrl,
+      path: "gmail",
+    });
+    expect(result?.ok).toBe(true);
+    if (result?.ok && result.action.kind === "agent") {
+      expect(result.action.threadId).toBe("123.456");
+    }
+  });
+
   it("runs transform module", async () => {
     const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-config-"));
     const transformsRoot = path.join(configDir, "hooks", "transforms");

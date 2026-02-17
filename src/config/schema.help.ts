@@ -69,6 +69,10 @@ export const FIELD_HELP: Record<string, string> = {
   "tools.exec.pathPrepend": "Directories to prepend to PATH for exec runs (gateway/sandbox).",
   "tools.exec.safeBins":
     "Allow stdin-only safe binaries to run without explicit allowlist entries.",
+  "tools.mcp.allowServers":
+    "Exact MCP server-name allowlist for mcp actions (tools/call). When configured, non-listed servers are denied.",
+  "tools.mcp.allowTools":
+    'Exact callable MCP tool allowlist as "server.tool". When configured, mcp action=call is denied unless matched.',
   "tools.fs.workspaceOnly":
     "Restrict filesystem tools (read/write/edit/apply_patch) to the workspace directory (default: false).",
   "tools.message.allowCrossContextSend":

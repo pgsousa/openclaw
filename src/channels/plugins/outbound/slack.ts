@@ -52,8 +52,14 @@ export const slackOutbound: ChannelOutboundAdapter = {
   textChunkLimit: 4000,
   sendText: async ({ to, text, accountId, deps, replyToId, threadId, identity }) => {
     const send = deps?.sendSlack ?? sendMessageSlack;
-    // Use threadId fallback so routed tool notifications stay in the Slack thread.
-    const threadTs = replyToId ?? (threadId != null ? String(threadId) : undefined);
+    // Prefer explicit threadId over replyToId to keep alert replies pinned to
+    // the intended root thread when both values are present.
+    const threadTs = threadId != null ? String(threadId) : replyToId;
+    console.log(
+      `[slack-outbound-debug] sendText to=${to} account=${accountId ?? ""} ` +
+        `threadId=${String(threadId ?? "")} replyToId=${String(replyToId ?? "")} ` +
+        `threadTs=${String(threadTs ?? "")}`,
+    );
     const hookResult = await applySlackMessageSendingHooks({
       to,
       text,
@@ -75,6 +81,10 @@ export const slackOutbound: ChannelOutboundAdapter = {
       accountId: accountId ?? undefined,
       ...(slackIdentity ? { identity: slackIdentity } : {}),
     });
+    console.log(
+      `[slack-outbound-debug] sendText result to=${to} messageId=${result.messageId} ` +
+        `channelId=${result.channelId}`,
+    );
     return { channel: "slack", ...result };
   },
   sendMedia: async ({
@@ -89,8 +99,14 @@ export const slackOutbound: ChannelOutboundAdapter = {
     identity,
   }) => {
     const send = deps?.sendSlack ?? sendMessageSlack;
-    // Use threadId fallback so routed tool notifications stay in the Slack thread.
-    const threadTs = replyToId ?? (threadId != null ? String(threadId) : undefined);
+    // Prefer explicit threadId over replyToId to keep alert replies pinned to
+    // the intended root thread when both values are present.
+    const threadTs = threadId != null ? String(threadId) : replyToId;
+    console.log(
+      `[slack-outbound-debug] sendMedia to=${to} account=${accountId ?? ""} ` +
+        `threadId=${String(threadId ?? "")} replyToId=${String(replyToId ?? "")} ` +
+        `threadTs=${String(threadTs ?? "")} mediaUrl=${mediaUrl}`,
+    );
     const hookResult = await applySlackMessageSendingHooks({
       to,
       text,
@@ -115,6 +131,10 @@ export const slackOutbound: ChannelOutboundAdapter = {
       accountId: accountId ?? undefined,
       ...(slackIdentity ? { identity: slackIdentity } : {}),
     });
+    console.log(
+      `[slack-outbound-debug] sendMedia result to=${to} messageId=${result.messageId} ` +
+        `channelId=${result.channelId}`,
+    );
     return { channel: "slack", ...result };
   },
 };

@@ -36,8 +36,10 @@ export function createGatewayHooksRequestHandler(params: {
     wakeMode: "now" | "next-heartbeat";
     sessionKey: string;
     deliver: boolean;
+    requireThreadId?: boolean;
     channel: HookMessageChannel;
     to?: string;
+    threadId?: string | number;
     model?: string;
     thinking?: string;
     timeoutSeconds?: number;
@@ -64,10 +66,20 @@ export function createGatewayHooksRequestHandler(params: {
         thinking: value.thinking,
         timeoutSeconds: value.timeoutSeconds,
         deliver: value.deliver,
+        requireThreadId: value.requireThreadId,
         channel: value.channel,
         to: value.to,
+        threadId: value.threadId,
         allowUnsafeExternalContent: value.allowUnsafeExternalContent,
       },
+      delivery: value.deliver
+        ? {
+            mode: "announce",
+            channel: value.channel,
+            to: value.to,
+            threadId: value.threadId,
+          }
+        : { mode: "none" },
       state: { nextRunAtMs: now },
     };
 
@@ -83,22 +95,32 @@ export function createGatewayHooksRequestHandler(params: {
           sessionKey,
           lane: "cron",
         });
-        const summary = result.summary?.trim() || result.error?.trim() || result.status;
-        const prefix =
-          result.status === "ok" ? `Hook ${value.name}` : `Hook ${value.name} (${result.status})`;
-        enqueueSystemEvent(`${prefix}: ${summary}`.trim(), {
-          sessionKey: mainSessionKey,
-        });
-        if (value.wakeMode === "now") {
-          requestHeartbeatNow({ reason: `hook:${jobId}` });
+        // Slack alert hook runs that require thread delivery should not also emit
+        // main-session events, otherwise errors can leak into root-channel replies.
+        const suppressMainSessionEvent =
+          value.deliver && value.requireThreadId === true && value.channel === "slack";
+        if (!suppressMainSessionEvent) {
+          const summary = result.summary?.trim() || result.error?.trim() || result.status;
+          const prefix =
+            result.status === "ok" ? `Hook ${value.name}` : `Hook ${value.name} (${result.status})`;
+          enqueueSystemEvent(`${prefix}: ${summary}`.trim(), {
+            sessionKey: mainSessionKey,
+          });
+          if (value.wakeMode === "now") {
+            requestHeartbeatNow({ reason: `hook:${jobId}` });
+          }
         }
       } catch (err) {
         logHooks.warn(`hook agent failed: ${String(err)}`);
-        enqueueSystemEvent(`Hook ${value.name} (error): ${String(err)}`, {
-          sessionKey: mainSessionKey,
-        });
-        if (value.wakeMode === "now") {
-          requestHeartbeatNow({ reason: `hook:${jobId}:error` });
+        const suppressMainSessionEvent =
+          value.deliver && value.requireThreadId === true && value.channel === "slack";
+        if (!suppressMainSessionEvent) {
+          enqueueSystemEvent(`Hook ${value.name} (error): ${String(err)}`, {
+            sessionKey: mainSessionKey,
+          });
+          if (value.wakeMode === "now") {
+            requestHeartbeatNow({ reason: `hook:${jobId}:error` });
+          }
         }
       }
     })();

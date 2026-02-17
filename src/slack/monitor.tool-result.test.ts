@@ -362,6 +362,38 @@ describe("monitorSlackProvider tool results", () => {
     expect(replyMock.mock.calls[0][0].WasMentioned).toBe(true);
   });
 
+  it("handles thread replies delivered as message_replied subtype", async () => {
+    slackTestState.config = {
+      channels: {
+        slack: {
+          dm: { enabled: true, policy: "open", allowFrom: ["*"] },
+          channels: { C1: { allow: true, requireMention: false } },
+        },
+      },
+    };
+    replyMock.mockResolvedValue({ text: "ok" });
+
+    await runSlackMessageOnce(monitorSlackProvider, {
+      event: {
+        type: "message",
+        subtype: "message_replied",
+        channel: "C1",
+        event_ts: "1000.001",
+        message: {
+          type: "message",
+          user: "U1",
+          text: "fix OpenClawSyntheticOOM-1771263476",
+          ts: "1000.002",
+          thread_ts: "1000.000",
+          parent_user_id: "bot-user",
+        },
+      },
+    });
+
+    expect(replyMock).toHaveBeenCalledTimes(1);
+    expect(replyMock.mock.calls[0][0].CommandBody).toBe("fix OpenClawSyntheticOOM-1771263476");
+  });
+
   it("accepts channel messages without mention when channels.slack.requireMention is false", async () => {
     slackTestState.config = {
       channels: {

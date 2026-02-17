@@ -16,6 +16,7 @@ export type CronDelivery = {
   mode: CronDeliveryMode;
   channel?: CronMessageChannel;
   to?: string;
+  threadId?: string | number;
   bestEffort?: boolean;
 };
 
@@ -31,9 +32,12 @@ export type CronPayload =
       thinking?: string;
       timeoutSeconds?: number;
       allowUnsafeExternalContent?: boolean;
+      /** Require a thread target for delivery-capable channels (e.g. Slack thread_ts). */
+      requireThreadId?: boolean;
       deliver?: boolean;
       channel?: CronMessageChannel;
       to?: string;
+      threadId?: string | number;
       bestEffortDeliver?: boolean;
     };
 
@@ -46,9 +50,11 @@ export type CronPayloadPatch =
       thinking?: string;
       timeoutSeconds?: number;
       allowUnsafeExternalContent?: boolean;
+      requireThreadId?: boolean;
       deliver?: boolean;
       channel?: CronMessageChannel;
       to?: string;
+      threadId?: string | number;
       bestEffortDeliver?: boolean;
     };
 

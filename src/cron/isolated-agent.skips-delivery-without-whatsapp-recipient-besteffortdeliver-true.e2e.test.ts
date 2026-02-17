@@ -5,6 +5,8 @@ import type { CliDeps } from "../cli/deps.js";
 import { loadModelCatalog } from "../agents/model-catalog.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
 import { runSubagentAnnounceFlow } from "../agents/subagent-announce.js";
+import { readLatestAssistantReply } from "../agents/tools/agent-step.js";
+import { slackOutbound } from "../channels/plugins/outbound/slack.js";
 import { telegramOutbound } from "../channels/plugins/outbound/telegram.js";
 import { setActivePluginRegistry } from "../plugins/runtime.js";
 import { createOutboundTestPlugin, createTestRegistry } from "../test-utils/channel-plugins.js";
@@ -67,6 +69,7 @@ describe("runCronIsolatedAgentTurn", () => {
     vi.mocked(runEmbeddedPiAgent).mockReset();
     vi.mocked(loadModelCatalog).mockResolvedValue([]);
     vi.mocked(runSubagentAnnounceFlow).mockReset().mockResolvedValue(true);
+    vi.mocked(readLatestAssistantReply).mockReset().mockResolvedValue(undefined);
     setActivePluginRegistry(
       createTestRegistry([
         {
@@ -117,6 +120,104 @@ describe("runCronIsolatedAgentTurn", () => {
       const [to, text] = vi.mocked(deps.sendMessageTelegram).mock.calls[0] ?? [];
       expect(to).toBe("123");
       expect(text).toBe("hello from cron");
+    });
+  });
+
+  it("uses transcript fallback when embedded run returns no deliverable payloads", async () => {
+    await withTempCronHome(async (home) => {
+      const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
+      const deps: CliDeps = {
+        sendMessageWhatsApp: vi.fn(),
+        sendMessageTelegram: vi.fn(),
+        sendMessageDiscord: vi.fn(),
+        sendMessageSignal: vi.fn(),
+        sendMessageIMessage: vi.fn(),
+      };
+      vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
+        payloads: [],
+        meta: {
+          durationMs: 5,
+          agentMeta: { sessionId: "s", provider: "p", model: "m" },
+        },
+      });
+      vi.mocked(readLatestAssistantReply).mockResolvedValue(
+        "[[reply_to_current]]\nRecovered summary from transcript",
+      );
+
+      const res = await runCronIsolatedAgentTurn({
+        cfg: makeCfg(home, storePath, {
+          channels: { telegram: { botToken: "t-1" } },
+        }),
+        deps,
+        job: {
+          ...makeJob({ kind: "agentTurn", message: "do it" }),
+          delivery: { mode: "announce", channel: "telegram", to: "123" },
+        },
+        message: "do it",
+        sessionKey: "cron:job-1",
+        lane: "cron",
+      });
+
+      expect(res.status).toBe("ok");
+      expect(res.delivered).toBe(true);
+      expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
+      expect(deps.sendMessageTelegram).toHaveBeenCalledTimes(1);
+      const [to, text] = vi.mocked(deps.sendMessageTelegram).mock.calls[0] ?? [];
+      expect(to).toBe("123");
+      expect(text).toBe("Recovered summary from transcript");
+    });
+  });
+
+  it("blocks Slack root delivery when threadId is required but missing", async () => {
+    await withTempCronHome(async (home) => {
+      const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
+      const deps: CliDeps = {
+        sendMessageWhatsApp: vi.fn(),
+        sendMessageTelegram: vi.fn(),
+        sendMessageDiscord: vi.fn(),
+        sendMessageSlack: vi.fn(),
+        sendMessageSignal: vi.fn(),
+        sendMessageIMessage: vi.fn(),
+      };
+      setActivePluginRegistry(
+        createTestRegistry([
+          {
+            pluginId: "slack",
+            plugin: createOutboundTestPlugin({ id: "slack", outbound: slackOutbound }),
+            source: "test",
+          },
+        ]),
+      );
+      vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
+        payloads: [{ text: "oom summary" }],
+        meta: {
+          durationMs: 5,
+          agentMeta: { sessionId: "s", provider: "p", model: "m" },
+        },
+      });
+
+      const res = await runCronIsolatedAgentTurn({
+        cfg: makeCfg(home, storePath, {
+          channels: { slack: { botToken: "xoxb-test" } },
+        }),
+        deps,
+        job: {
+          ...makeJob({
+            kind: "agentTurn",
+            message: "alert hook run",
+            requireThreadId: true,
+          }),
+          delivery: { mode: "announce", channel: "slack", to: "channel:C123" },
+        },
+        message: "alert hook run",
+        sessionKey: "hook:webhook:alertmanager:1",
+        lane: "cron",
+      });
+
+      expect(res.status).toBe("error");
+      expect(res.error).toContain("requires threadId");
+      expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
+      expect(deps.sendMessageSlack).not.toHaveBeenCalled();
     });
   });
 

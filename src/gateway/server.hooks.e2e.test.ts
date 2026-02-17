@@ -214,6 +214,86 @@ describe("gateway server hooks", () => {
     });
   });
 
+  test("does not emit main-session events for Slack alerts that require thread delivery", async () => {
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
+    await withGatewayServer(async ({ port }) => {
+      drainSystemEvents(resolveMainKey());
+      cronIsolatedRun.mockReset();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "error",
+        error: "cron Slack delivery requires threadId; refusing root-channel post",
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Alert workflow",
+          name: "Alertmanager",
+          channel: "slack",
+          to: "channel:C123",
+          deliver: true,
+          requireThreadId: true,
+        }),
+      });
+
+      expect(res.status).toBe(202);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(peekSystemEvents(resolveMainKey())).toEqual([]);
+    });
+  });
+
+  test("persists hook threadId in delivery for Slack alert jobs", async () => {
+    testState.hooksConfig = { enabled: true, token: "hook-secret" };
+    await withGatewayServer(async ({ port }) => {
+      cronIsolatedRun.mockReset();
+      cronIsolatedRun.mockResolvedValueOnce({
+        status: "ok",
+        summary: "done",
+      });
+
+      const res = await fetch(`http://127.0.0.1:${port}/hooks/agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer hook-secret",
+        },
+        body: JSON.stringify({
+          message: "Alert workflow",
+          name: "Alertmanager",
+          channel: "slack",
+          to: "channel:C123",
+          threadId: "1712345678.12345",
+          deliver: true,
+          requireThreadId: true,
+        }),
+      });
+
+      expect(res.status).toBe(202);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const call = cronIsolatedRun.mock.calls[0]?.[0] as
+        | {
+            job?: {
+              payload?: { threadId?: string };
+              delivery?: { mode?: string; channel?: string; to?: string; threadId?: string };
+            };
+          }
+        | undefined;
+      expect(call?.job?.payload?.threadId).toBe("1712345678.12345");
+      expect(call?.job?.delivery).toEqual(
+        expect.objectContaining({
+          mode: "announce",
+          channel: "slack",
+          to: "channel:C123",
+          threadId: "1712345678.12345",
+        }),
+      );
+    });
+  });
+
   test("respects hooks session policy for request + mapping session keys", async () => {
     testState.hooksConfig = {
       enabled: true,

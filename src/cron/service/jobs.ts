@@ -359,6 +359,9 @@ function mergeCronPayload(existing: CronPayload, patch: CronPayloadPatch): CronP
   if (typeof patch.allowUnsafeExternalContent === "boolean") {
     next.allowUnsafeExternalContent = patch.allowUnsafeExternalContent;
   }
+  if (typeof patch.requireThreadId === "boolean") {
+    next.requireThreadId = patch.requireThreadId;
+  }
   if (typeof patch.deliver === "boolean") {
     next.deliver = patch.deliver;
   }
@@ -367,6 +370,9 @@ function mergeCronPayload(existing: CronPayload, patch: CronPayloadPatch): CronP
   }
   if (typeof patch.to === "string") {
     next.to = patch.to;
+  }
+  if (typeof patch.threadId === "string" || typeof patch.threadId === "number") {
+    next.threadId = patch.threadId;
   }
   if (typeof patch.bestEffortDeliver === "boolean") {
     next.bestEffortDeliver = patch.bestEffortDeliver;
@@ -379,10 +385,15 @@ function buildLegacyDeliveryPatch(
 ): CronDeliveryPatch | null {
   const deliver = payload.deliver;
   const toRaw = typeof payload.to === "string" ? payload.to.trim() : "";
+  const threadIdRaw = payload.threadId;
+  const hasThreadId =
+    (typeof threadIdRaw === "string" && threadIdRaw.trim().length > 0) ||
+    typeof threadIdRaw === "number";
   const hasLegacyHints =
     typeof deliver === "boolean" ||
     typeof payload.bestEffortDeliver === "boolean" ||
-    Boolean(toRaw);
+    Boolean(toRaw) ||
+    hasThreadId;
   if (!hasLegacyHints) {
     return null;
   }
@@ -405,6 +416,10 @@ function buildLegacyDeliveryPatch(
   }
   if (typeof payload.to === "string") {
     patch.to = payload.to.trim();
+    hasPatch = true;
+  }
+  if (typeof payload.threadId === "string" || typeof payload.threadId === "number") {
+    patch.threadId = payload.threadId;
     hasPatch = true;
   }
   if (typeof payload.bestEffortDeliver === "boolean") {
@@ -434,9 +449,11 @@ function buildPayloadFromPatch(patch: CronPayloadPatch): CronPayload {
     thinking: patch.thinking,
     timeoutSeconds: patch.timeoutSeconds,
     allowUnsafeExternalContent: patch.allowUnsafeExternalContent,
+    requireThreadId: patch.requireThreadId,
     deliver: patch.deliver,
     channel: patch.channel,
     to: patch.to,
+    threadId: patch.threadId,
     bestEffortDeliver: patch.bestEffortDeliver,
   };
 }
@@ -449,6 +466,7 @@ function mergeCronDelivery(
     mode: existing?.mode ?? "none",
     channel: existing?.channel,
     to: existing?.to,
+    threadId: existing?.threadId,
     bestEffort: existing?.bestEffort,
   };
 
@@ -462,6 +480,16 @@ function mergeCronDelivery(
   if ("to" in patch) {
     const to = typeof patch.to === "string" ? patch.to.trim() : "";
     next.to = to ? to : undefined;
+  }
+  if ("threadId" in patch) {
+    if (typeof patch.threadId === "string") {
+      const threadId = patch.threadId.trim();
+      next.threadId = threadId ? threadId : undefined;
+    } else if (typeof patch.threadId === "number") {
+      next.threadId = Number.isFinite(patch.threadId) ? patch.threadId : undefined;
+    } else {
+      next.threadId = undefined;
+    }
   }
   if (typeof patch.bestEffort === "boolean") {
     next.bestEffort = patch.bestEffort;

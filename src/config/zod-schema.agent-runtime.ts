@@ -291,6 +291,14 @@ const AgentToolExecSchema = z
 
 const ToolExecSchema = z.object(ToolExecBaseShape).strict().optional();
 
+const ToolMcpSchema = z
+  .object({
+    allowServers: z.array(z.string()).optional(),
+    allowTools: z.array(z.string()).optional(),
+  })
+  .strict()
+  .optional();
+
 const ToolFsSchema = z
   .object({
     workspaceOnly: z.boolean().optional(),
@@ -328,6 +336,7 @@ export const AgentToolsSchema = z
       .strict()
       .optional(),
     exec: AgentToolExecSchema,
+    mcp: ToolMcpSchema,
     fs: ToolFsSchema,
     sandbox: z
       .object({
@@ -552,6 +561,7 @@ export const ToolsSchema = z
       .strict()
       .optional(),
     exec: ToolExecSchema,
+    mcp: ToolMcpSchema,
     fs: ToolFsSchema,
     subagents: z
       .object({

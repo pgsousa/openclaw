@@ -72,8 +72,10 @@ type HookDispatchers = {
     wakeMode: "now" | "next-heartbeat";
     sessionKey: string;
     deliver: boolean;
+    requireThreadId?: boolean;
     channel: HookMessageChannel;
     to?: string;
+    threadId?: string | number;
     model?: string;
     thinking?: string;
     timeoutSeconds?: number;
@@ -85,6 +87,61 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeHookFieldMaps(
+  base: unknown,
+  alertValue: unknown,
+): Record<string, unknown> | undefined {
+  const baseMap = isRecord(base) ? base : undefined;
+  const alertMap = isRecord(alertValue) ? alertValue : undefined;
+  if (!baseMap && !alertMap) {
+    return undefined;
+  }
+  return { ...(baseMap ?? {}), ...(alertMap ?? {}) };
+}
+
+function isAlertBatchPayload(payload: Record<string, unknown>): boolean {
+  return Array.isArray(payload.alerts);
+}
+
+function splitHookMappingPayloads(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const alertsRaw = payload.alerts;
+  if (!Array.isArray(alertsRaw) || alertsRaw.length <= 1) {
+    return [payload];
+  }
+  const alerts = alertsRaw.filter((entry): entry is Record<string, unknown> => isRecord(entry));
+  if (alerts.length === 0) {
+    return [payload];
+  }
+  return alerts.map((alert) => {
+    const alertLabels = isRecord(alert.labels) ? alert.labels : undefined;
+    const alertAnnotations = isRecord(alert.annotations) ? alert.annotations : undefined;
+    const commonLabels = mergeHookFieldMaps(payload.commonLabels, alertLabels);
+    const commonAnnotations = mergeHookFieldMaps(payload.commonAnnotations, alertAnnotations);
+    const alertStatus =
+      typeof alert.status === "string" && alert.status.trim().length > 0
+        ? alert.status
+        : payload.status;
+    return {
+      ...payload,
+      status: alertStatus,
+      commonLabels: commonLabels ?? payload.commonLabels,
+      commonAnnotations: commonAnnotations ?? payload.commonAnnotations,
+      alerts: [alert],
+    };
+  });
+}
+
+function hasThreadIdValue(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function isCanvasPath(pathname: string): boolean {
@@ -318,7 +375,8 @@ export function createHooksRequestHandler(
       return true;
     }
 
-    const payload = typeof body.value === "object" && body.value !== null ? body.value : {};
+    const payload =
+      typeof body.value === "object" && body.value !== null ? body.value : ({} as Record<string, unknown>);
     const headers = normalizeHookHeaders(req);
 
     if (subPath === "wake") {
@@ -362,34 +420,51 @@ export function createHooksRequestHandler(
 
     if (hooksConfig.mappings.length > 0) {
       try {
-        const mapped = await applyHookMappings(hooksConfig.mappings, {
-          payload: payload as Record<string, unknown>,
-          headers,
-          url,
-          path: subPath,
-        });
-        if (mapped) {
+        const mappingPayloads = splitHookMappingPayloads(payload);
+        const wakeModes: Array<"now" | "next-heartbeat"> = [];
+        const runIds: string[] = [];
+        let matched = false;
+        let skipped = 0;
+
+        for (const mappingPayload of mappingPayloads) {
+          const mapped = await applyHookMappings(hooksConfig.mappings, {
+            payload: mappingPayload,
+            headers,
+            url,
+            path: subPath,
+          });
+          if (!mapped) {
+            continue;
+          }
+          matched = true;
           if (!mapped.ok) {
             sendJson(res, 400, { ok: false, error: mapped.error });
             return true;
           }
           if (mapped.action === null) {
-            res.statusCode = 204;
-            res.end();
-            return true;
+            skipped++;
+            continue;
           }
           if (mapped.action.kind === "wake") {
             dispatchWakeHook({
               text: mapped.action.text,
               mode: mapped.action.mode,
             });
-            sendJson(res, 200, { ok: true, mode: mapped.action.mode });
-            return true;
+            wakeModes.push(mapped.action.mode);
+            continue;
           }
           const channel = resolveHookChannel(mapped.action.channel);
           if (!channel) {
             sendJson(res, 400, { ok: false, error: getHookChannelError() });
             return true;
+          }
+          const requireThreadId = channel === "slack" && isAlertBatchPayload(mappingPayload);
+          if (requireThreadId && !hasThreadIdValue(mapped.action.threadId)) {
+            skipped++;
+            logHooks.warn(
+              `[hooks:${subPath}] skipped Slack alert delivery without threadId (root post blocked)`,
+            );
+            continue;
           }
           if (!isHookAgentAllowed(hooksConfig, mapped.action.agentId)) {
             sendJson(res, 400, { ok: false, error: getHookAgentPolicyError() });
@@ -411,14 +486,48 @@ export function createHooksRequestHandler(
             wakeMode: mapped.action.wakeMode,
             sessionKey: sessionKey.value,
             deliver: resolveHookDeliver(mapped.action.deliver),
+            requireThreadId,
             channel,
             to: mapped.action.to,
+            threadId: mapped.action.threadId,
             model: mapped.action.model,
             thinking: mapped.action.thinking,
             timeoutSeconds: mapped.action.timeoutSeconds,
             allowUnsafeExternalContent: mapped.action.allowUnsafeExternalContent,
           });
-          sendJson(res, 202, { ok: true, runId });
+          runIds.push(runId);
+        }
+
+        if (matched) {
+          if (runIds.length === 0 && wakeModes.length === 0) {
+            if (skipped > 0) {
+              logHooks.warn(`[hooks:${subPath}] skipped ${skipped} mapped hook action(s)`);
+            }
+            res.statusCode = 204;
+            res.end();
+            return true;
+          }
+          if (runIds.length === 0) {
+            sendJson(
+              res,
+              200,
+              wakeModes.length === 1
+                ? { ok: true, mode: wakeModes[0] }
+                : { ok: true, modes: wakeModes, count: wakeModes.length },
+            );
+            return true;
+          }
+          if (wakeModes.length === 0 && runIds.length === 1) {
+            sendJson(res, 202, { ok: true, runId: runIds[0] });
+            return true;
+          }
+          sendJson(res, 202, {
+            ok: true,
+            runIds,
+            runCount: runIds.length,
+            wakeModes,
+            wakeCount: wakeModes.length,
+          });
           return true;
         }
       } catch (err) {

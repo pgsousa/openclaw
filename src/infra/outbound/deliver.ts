@@ -29,6 +29,7 @@ import { sendMessageSignal } from "../../signal/send.js";
 import { throwIfAborted } from "./abort.js";
 import { ackDelivery, enqueueDelivery, failDelivery } from "./delivery-queue.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
+import { logWarn } from "../../logger.js";
 
 export type { NormalizedOutboundPayload } from "./payloads.js";
 export { normalizeOutboundPayloads } from "./payloads.js";
@@ -75,8 +76,15 @@ type ChannelHandler = {
   chunkerMode?: "text" | "markdown";
   textChunkLimit?: number;
   sendPayload?: (payload: ReplyPayload) => Promise<OutboundDeliveryResult>;
-  sendText: (text: string) => Promise<OutboundDeliveryResult>;
-  sendMedia: (caption: string, mediaUrl: string) => Promise<OutboundDeliveryResult>;
+  sendText: (
+    text: string,
+    opts?: { replyToId?: string | null },
+  ) => Promise<OutboundDeliveryResult>;
+  sendMedia: (
+    caption: string,
+    mediaUrl: string,
+    opts?: { replyToId?: string | null },
+  ) => Promise<OutboundDeliveryResult>;
 };
 
 // Channel docking: outbound delivery delegates to plugin.outbound adapters.
@@ -151,7 +159,7 @@ function createPluginHandler(params: {
             text: payload.text ?? "",
             mediaUrl: payload.mediaUrl,
             accountId: params.accountId,
-            replyToId: params.replyToId,
+            replyToId: payload.replyToId ?? params.replyToId,
             threadId: params.threadId,
             identity: params.identity,
             gifPlayback: params.gifPlayback,
@@ -161,13 +169,13 @@ function createPluginHandler(params: {
             payload,
           })
       : undefined,
-    sendText: async (text) =>
+    sendText: async (text, opts) =>
       sendText({
         cfg: params.cfg,
         to: params.to,
         text,
         accountId: params.accountId,
-        replyToId: params.replyToId,
+        replyToId: opts?.replyToId ?? params.replyToId,
         threadId: params.threadId,
         identity: params.identity,
         gifPlayback: params.gifPlayback,
@@ -175,14 +183,14 @@ function createPluginHandler(params: {
         silent: params.silent,
         mediaLocalRoots: params.mediaLocalRoots,
       }),
-    sendMedia: async (caption, mediaUrl) =>
+    sendMedia: async (caption, mediaUrl, opts) =>
       sendMedia({
         cfg: params.cfg,
         to: params.to,
         text: caption,
         mediaUrl,
         accountId: params.accountId,
-        replyToId: params.replyToId,
+        replyToId: opts?.replyToId ?? params.replyToId,
         threadId: params.threadId,
         identity: params.identity,
         gifPlayback: params.gifPlayback,
@@ -194,6 +202,17 @@ function createPluginHandler(params: {
 }
 
 const isAbortError = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
+
+function normalizeThreadReplyTarget(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
 
 type DeliverOutboundPayloadsCoreParams = {
   cfg: OpenClawConfig;
@@ -300,6 +319,12 @@ async function deliverOutboundPayloadsCore(
     params.agentId ?? params.mirror?.agentId,
   );
   const results: OutboundDeliveryResult[] = [];
+  if (channel === "slack") {
+    logWarn(
+      `[slack-deliver-debug] start channel=${channel} to=${to} ` +
+        `threadId=${String(params.threadId ?? "")} replyToId=${String(params.replyToId ?? "")}`,
+    );
+  }
   const handler = await createChannelHandler({
     cfg,
     channel,
@@ -333,10 +358,10 @@ async function deliverOutboundPayloadsCore(
       })
     : undefined;
 
-  const sendTextChunks = async (text: string) => {
+  const sendTextChunks = async (text: string, replyToId?: string | null) => {
     throwIfAborted(abortSignal);
     if (!handler.chunker || textLimit === undefined) {
-      results.push(await handler.sendText(text));
+      results.push(await handler.sendText(text, { replyToId }));
       return;
     }
     if (chunkMode === "newline") {
@@ -356,7 +381,7 @@ async function deliverOutboundPayloadsCore(
         }
         for (const chunk of chunks) {
           throwIfAborted(abortSignal);
-          results.push(await handler.sendText(chunk));
+          results.push(await handler.sendText(chunk, { replyToId }));
         }
       }
       return;
@@ -364,7 +389,7 @@ async function deliverOutboundPayloadsCore(
     const chunks = handler.chunker(text, textLimit);
     for (const chunk of chunks) {
       throwIfAborted(abortSignal);
-      results.push(await handler.sendText(chunk));
+      results.push(await handler.sendText(chunk, { replyToId }));
     }
   };
 
@@ -499,9 +524,27 @@ async function deliverOutboundPayloadsCore(
         }
       }
 
+      const slackThreadReplyFallback =
+        channel === "slack" ? normalizeThreadReplyTarget(params.threadId) : undefined;
+      const effectiveReplyToId =
+        effectivePayload.replyToId ?? params.replyToId ?? slackThreadReplyFallback;
+      if (channel === "slack") {
+        logWarn(
+          `[slack-deliver-debug] payload to=${to} ` +
+            `threadId=${String(params.threadId ?? "")} replyToId=${String(params.replyToId ?? "")} ` +
+            `payload.replyToId=${String(effectivePayload.replyToId ?? "")} ` +
+            `effectiveReplyToId=${String(effectiveReplyToId ?? "")} ` +
+            `hasChannelData=${String(Boolean(effectivePayload.channelData))}`,
+        );
+      }
+
       params.onPayload?.(payloadSummary);
       if (handler.sendPayload && effectivePayload.channelData) {
-        results.push(await handler.sendPayload(effectivePayload));
+        const payloadForSend =
+          effectivePayload.replyToId == null && effectiveReplyToId
+            ? { ...effectivePayload, replyToId: effectiveReplyToId }
+            : effectivePayload;
+        results.push(await handler.sendPayload(payloadForSend));
         emitMessageSent(true);
         continue;
       }
@@ -509,7 +552,7 @@ async function deliverOutboundPayloadsCore(
         if (isSignalChannel) {
           await sendSignalTextChunks(payloadSummary.text);
         } else {
-          await sendTextChunks(payloadSummary.text);
+          await sendTextChunks(payloadSummary.text, effectiveReplyToId);
         }
         emitMessageSent(true);
         continue;
@@ -523,7 +566,7 @@ async function deliverOutboundPayloadsCore(
         if (isSignalChannel) {
           results.push(await sendSignalMedia(caption, url));
         } else {
-          results.push(await handler.sendMedia(caption, url));
+          results.push(await handler.sendMedia(caption, url, { replyToId: effectiveReplyToId }));
         }
       }
       emitMessageSent(true);

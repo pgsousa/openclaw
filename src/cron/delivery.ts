@@ -4,6 +4,7 @@ export type CronDeliveryPlan = {
   mode: CronDeliveryMode;
   channel: CronMessageChannel;
   to?: string;
+  threadId?: string | number;
   source: "delivery" | "payload";
   requested: boolean;
 };
@@ -27,6 +28,17 @@ function normalizeTo(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function normalizeThreadId(value: unknown): string | number | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return undefined;
+}
+
 export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
   const payload = job.payload.kind === "agentTurn" ? job.payload : null;
   const delivery = job.delivery;
@@ -44,19 +56,23 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
 
   const payloadChannel = normalizeChannel(payload?.channel);
   const payloadTo = normalizeTo(payload?.to);
+  const payloadThreadId = normalizeThreadId(payload?.threadId);
   const deliveryChannel = normalizeChannel(
     (delivery as { channel?: unknown } | undefined)?.channel,
   );
   const deliveryTo = normalizeTo((delivery as { to?: unknown } | undefined)?.to);
+  const deliveryThreadId = normalizeThreadId((delivery as { threadId?: unknown } | undefined)?.threadId);
 
   const channel = deliveryChannel ?? payloadChannel ?? "last";
   const to = deliveryTo ?? payloadTo;
+  const threadId = deliveryThreadId ?? payloadThreadId;
   if (hasDelivery) {
     const resolvedMode = mode ?? "announce";
     return {
       mode: resolvedMode,
       channel,
       to,
+      threadId,
       source: "delivery",
       requested: resolvedMode === "announce",
     };
@@ -71,6 +87,7 @@ export function resolveCronDeliveryPlan(job: CronJob): CronDeliveryPlan {
     mode: requested ? "announce" : "none",
     channel,
     to,
+    threadId,
     source: "payload",
     requested,
   };

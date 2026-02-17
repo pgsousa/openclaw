@@ -87,4 +87,13 @@ export type SlackThreadBroadcastEvent = {
   event_ts?: string;
 };
 
+export type SlackMessageRepliedEvent = {
+  type: "message";
+  subtype: "message_replied";
+  channel?: string;
+  channel_type?: SlackMessageEvent["channel_type"];
+  event_ts?: string;
+  message?: Partial<SlackMessageEvent>;
+};
+
 export type { SlackFile, SlackMessageEvent };

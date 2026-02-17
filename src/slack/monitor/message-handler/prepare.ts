@@ -50,6 +50,8 @@ import {
 } from "../media.js";
 import { resolveSlackRoomContextHints } from "../room-context.js";
 
+const SLACK_EVENT_DEBUG = process.env.OPENCLAW_SLACK_EVENT_DEBUG === "1";
+
 export async function prepareSlackMessage(params: {
   ctx: SlackMonitorContext;
   account: ResolvedSlackAccount;
@@ -58,6 +60,16 @@ export async function prepareSlackMessage(params: {
 }): Promise<PreparedSlackMessage | null> {
   const { ctx, account, message, opts } = params;
   const cfg = ctx.cfg;
+  const debugLog = (line: string) => {
+    if (!SLACK_EVENT_DEBUG) {
+      return;
+    }
+    ctx.runtime.log?.(`[slack-debug] prepare ${line}`);
+  };
+
+  debugLog(
+    `start source=${opts.source} channel=${message.channel} ts=${message.ts ?? "unknown"} thread=${message.thread_ts ?? "none"} subtype=${message.subtype ?? "none"} user=${message.user ?? "unknown"} text=${(message.text ?? "").slice(0, 80).replace(/\s+/g, " ")}`,
+  );
 
   let channelInfo: {
     name?: string;
@@ -95,22 +107,26 @@ export async function prepareSlackMessage(params: {
   const isBotMessage = Boolean(message.bot_id);
   if (isBotMessage) {
     if (message.user && ctx.botUserId && message.user === ctx.botUserId) {
+      debugLog("drop=bot_self_message");
       return null;
     }
     if (!allowBots) {
       logVerbose(`slack: drop bot message ${message.bot_id ?? "unknown"} (allowBots=false)`);
+      debugLog("drop=bot_message_allowBots_false");
       return null;
     }
   }
 
   if (isDirectMessage && !message.user) {
     logVerbose("slack: drop dm message (missing user id)");
+    debugLog("drop=dm_missing_user");
     return null;
   }
 
   const senderId = message.user ?? (isBotMessage ? message.bot_id : undefined);
   if (!senderId) {
     logVerbose("slack: drop message (missing sender id)");
+    debugLog("drop=missing_sender_id");
     return null;
   }
 
@@ -122,6 +138,7 @@ export async function prepareSlackMessage(params: {
     })
   ) {
     logVerbose("slack: drop message (channel not allowed)");
+    debugLog("drop=channel_not_allowed");
     return null;
   }
 
@@ -131,10 +148,12 @@ export async function prepareSlackMessage(params: {
     const directUserId = message.user;
     if (!directUserId) {
       logVerbose("slack: drop dm message (missing user id)");
+      debugLog("drop=dm_missing_user_2");
       return null;
     }
     if (!ctx.dmEnabled || ctx.dmPolicy === "disabled") {
       logVerbose("slack: drop dm (dms disabled)");
+      debugLog("drop=dm_disabled");
       return null;
     }
     if (ctx.dmPolicy !== "open") {
@@ -181,6 +200,7 @@ export async function prepareSlackMessage(params: {
             `Blocked unauthorized slack sender ${message.user} (dmPolicy=${ctx.dmPolicy}, ${allowMatchMeta})`,
           );
         }
+        debugLog("drop=dm_not_allowlisted");
         return null;
       }
     }
@@ -247,6 +267,7 @@ export async function prepareSlackMessage(params: {
     : true;
   if (isRoom && !channelUserAuthorized) {
     logVerbose(`Blocked unauthorized slack sender ${senderId} (not in channel users)`);
+    debugLog("drop=room_user_not_allowlisted");
     return null;
   }
 
@@ -283,6 +304,9 @@ export async function prepareSlackMessage(params: {
     hasControlCommand: hasControlCommandInMessage,
   });
   const commandAuthorized = commandGate.commandAuthorized;
+  debugLog(
+    `command_gate hasControl=${hasControlCommandInMessage} commandAuthorized=${commandAuthorized} shouldBlock=${commandGate.shouldBlock} allowText=${allowTextCommands} ownerAuthorized=${ownerAuthorized}`,
+  );
 
   if (isRoomish && commandGate.shouldBlock) {
     logInboundDrop({
@@ -291,6 +315,7 @@ export async function prepareSlackMessage(params: {
       reason: "control command (unauthorized)",
       target: senderId,
     });
+    debugLog("drop=control_command_unauthorized");
     return null;
   }
 
@@ -312,6 +337,9 @@ export async function prepareSlackMessage(params: {
     commandAuthorized,
   });
   const effectiveWasMentioned = mentionGate.effectiveWasMentioned;
+  debugLog(
+    `mention_gate requireMention=${Boolean(shouldRequireMention)} wasMentioned=${wasMentioned} implicitMention=${implicitMention} bypass=${mentionGate.shouldBypassMention} skip=${mentionGate.shouldSkip} effectiveWasMentioned=${effectiveWasMentioned}`,
+  );
   if (isRoom && shouldRequireMention && mentionGate.shouldSkip) {
     ctx.logger.info({ channel: message.channel, reason: "no-mention" }, "skipping channel message");
     const pendingText = (message.text ?? "").trim();
@@ -334,6 +362,7 @@ export async function prepareSlackMessage(params: {
           }
         : null,
     });
+    debugLog("drop=mention_required_not_met");
     return null;
   }
 
@@ -345,6 +374,7 @@ export async function prepareSlackMessage(params: {
   const mediaPlaceholder = media ? media.map((m) => m.placeholder).join(" ") : undefined;
   const rawBody = (message.text ?? "").trim() || mediaPlaceholder || "";
   if (!rawBody) {
+    debugLog("drop=raw_body_empty");
     return null;
   }
 
@@ -640,12 +670,17 @@ export async function prepareSlackMessage(params: {
 
   const replyTarget = ctxPayload.To ?? undefined;
   if (!replyTarget) {
+    debugLog("drop=missing_reply_target");
     return null;
   }
 
   if (shouldLogVerbose()) {
     logVerbose(`slack inbound: channel=${message.channel} from=${slackFrom} preview="${preview}"`);
   }
+
+  debugLog(
+    `ok sessionKey=${sessionKey} replyTarget=${replyTarget} commandAuthorized=${commandAuthorized} effectiveWasMentioned=${effectiveWasMentioned} preview=${preview.slice(0, 80)}`,
+  );
 
   return {
     ctx,

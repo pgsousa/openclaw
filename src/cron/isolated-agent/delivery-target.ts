@@ -19,6 +19,7 @@ export async function resolveDeliveryTarget(
   jobPayload: {
     channel?: "last" | ChannelId;
     to?: string;
+    threadId?: string | number;
   },
 ): Promise<{
   channel: Exclude<OutboundChannel, "none">;
@@ -30,6 +31,8 @@ export async function resolveDeliveryTarget(
 }> {
   const requestedChannel = typeof jobPayload.channel === "string" ? jobPayload.channel : "last";
   const explicitTo = typeof jobPayload.to === "string" ? jobPayload.to : undefined;
+  const explicitThreadId =
+    jobPayload.threadId != null && jobPayload.threadId !== "" ? jobPayload.threadId : undefined;
   const allowMismatchedLastTo = requestedChannel === "last";
 
   const sessionCfg = cfg.session;
@@ -42,6 +45,7 @@ export async function resolveDeliveryTarget(
     entry: main,
     requestedChannel,
     explicitTo,
+    explicitThreadId,
     allowMismatchedLastTo,
   });
 
@@ -60,6 +64,7 @@ export async function resolveDeliveryTarget(
         entry: main,
         requestedChannel,
         explicitTo,
+        explicitThreadId,
         fallbackChannel,
         allowMismatchedLastTo,
         mode: preliminary.mode,
@@ -75,9 +80,10 @@ export async function resolveDeliveryTarget(
   // supergroup topic) from being sent to a different target (e.g. a private
   // chat) where they would cause API errors.
   const threadId =
-    resolved.threadId && resolved.to && resolved.to === resolved.lastTo
+    explicitThreadId ??
+    (resolved.threadId && resolved.to && resolved.to === resolved.lastTo
       ? resolved.threadId
-      : undefined;
+      : undefined);
 
   if (!toCandidate) {
     return {

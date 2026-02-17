@@ -42,4 +42,22 @@ describe("resolveCronDeliveryPlan", () => {
     expect(plan.mode).toBe("none");
     expect(plan.requested).toBe(false);
   });
+
+  it("carries explicit threadId from delivery", () => {
+    const plan = resolveCronDeliveryPlan(
+      makeJob({
+        delivery: { mode: "announce", channel: "slack", to: "channel:C123", threadId: "1.234" },
+      }),
+    );
+    expect(plan.threadId).toBe("1.234");
+  });
+
+  it("falls back to payload threadId when delivery threadId is omitted", () => {
+    const plan = resolveCronDeliveryPlan(
+      makeJob({
+        payload: { kind: "agentTurn", message: "hello", to: "channel:C123", threadId: 42 },
+      }),
+    );
+    expect(plan.threadId).toBe(42);
+  });
 });

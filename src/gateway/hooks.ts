@@ -226,8 +226,10 @@ export type HookAgentPayload = {
   wakeMode: "now" | "next-heartbeat";
   sessionKey?: string;
   deliver: boolean;
+  requireThreadId?: boolean;
   channel: HookMessageChannel;
   to?: string;
+  threadId?: string | number;
   model?: string;
   thinking?: string;
   timeoutSeconds?: number;
@@ -352,11 +354,19 @@ export function normalizeAgentPayload(payload: Record<string, unknown>):
   }
   const toRaw = payload.to;
   const to = typeof toRaw === "string" && toRaw.trim() ? toRaw.trim() : undefined;
+  const threadIdRaw = payload.threadId;
+  const threadId =
+    typeof threadIdRaw === "string" && threadIdRaw.trim()
+      ? threadIdRaw.trim()
+      : typeof threadIdRaw === "number" && Number.isFinite(threadIdRaw)
+        ? threadIdRaw
+        : undefined;
   const modelRaw = payload.model;
   const model = typeof modelRaw === "string" && modelRaw.trim() ? modelRaw.trim() : undefined;
   if (modelRaw !== undefined && !model) {
     return { ok: false, error: "model required" };
   }
+  const requireThreadId = payload.requireThreadId === true;
   const deliver = resolveHookDeliver(payload.deliver);
   const thinkingRaw = payload.thinking;
   const thinking =
@@ -375,8 +385,10 @@ export function normalizeAgentPayload(payload: Record<string, unknown>):
       wakeMode,
       sessionKey,
       deliver,
+      requireThreadId,
       channel,
       to,
+      threadId,
       model,
       thinking,
       timeoutSeconds,

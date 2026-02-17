@@ -527,6 +527,112 @@ describe("deliverOutboundPayloads", () => {
     );
   });
 
+  it("prefers payload reply directives over top-level replyToId for text sends", async () => {
+    const sendText = vi.fn().mockResolvedValue({ channel: "matrix", messageId: "mx-1" });
+    const sendMedia = vi.fn().mockResolvedValue({ channel: "matrix", messageId: "mx-2" });
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "matrix",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "matrix",
+            outbound: { deliveryMode: "direct", sendText, sendMedia },
+          }),
+        },
+      ]),
+    );
+
+    await deliverOutboundPayloads({
+      cfg: {},
+      channel: "matrix",
+      to: "!room:1",
+      replyToId: "top-level-thread",
+      payloads: [{ text: "[[reply_to:payload-thread]]OOM root cause found" }],
+    });
+
+    expect(sendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "!room:1",
+        text: "OOM root cause found",
+        replyToId: "payload-thread",
+      }),
+    );
+  });
+
+  it("uses threadId as Slack reply target when replyToId is missing", async () => {
+    const sendText = vi.fn().mockResolvedValue({ channel: "slack", messageId: "s1" });
+    const sendMedia = vi.fn().mockResolvedValue({ channel: "slack", messageId: "s2" });
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "slack",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "slack",
+            outbound: { deliveryMode: "direct", sendText, sendMedia },
+          }),
+        },
+      ]),
+    );
+
+    await deliverOutboundPayloads({
+      cfg: {},
+      channel: "slack",
+      to: "channel:C123",
+      threadId: "171.001",
+      payloads: [{ text: "OOM incident summary" }],
+    });
+
+    expect(sendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "channel:C123",
+        text: "OOM incident summary",
+        replyToId: "171.001",
+      }),
+    );
+  });
+
+  it("passes payload reply directives to sendPayload adapters", async () => {
+    const sendPayload = vi.fn().mockResolvedValue({ channel: "matrix", messageId: "mx-1" });
+    const sendText = vi.fn();
+    const sendMedia = vi.fn();
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "matrix",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "matrix",
+            outbound: { deliveryMode: "direct", sendPayload, sendText, sendMedia },
+          }),
+        },
+      ]),
+    );
+
+    await deliverOutboundPayloads({
+      cfg: {},
+      channel: "matrix",
+      to: "!room:1",
+      replyToId: "top-level-thread",
+      payloads: [
+        {
+          text: "[[reply_to:payload-thread]]Custom payload",
+          channelData: { kind: "custom" },
+        },
+      ],
+    });
+
+    expect(sendPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "!room:1",
+        text: "Custom payload",
+        replyToId: "payload-thread",
+        payload: expect.objectContaining({ replyToId: "payload-thread", text: "Custom payload" }),
+      }),
+    );
+  });
+
   it("emits message_sent success for text-only deliveries", async () => {
     hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "message_sent");
     const sendWhatsApp = vi.fn().mockResolvedValue({ messageId: "w1", toJid: "jid" });

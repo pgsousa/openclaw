@@ -348,15 +348,21 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
 }
 
 export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig {
+  const domainPolicy = cfg.agents?.defaults?.domainPolicy;
+  if (!domainPolicy?.enabled || domainPolicy.profile !== "aiops") {
+    return cfg;
+  }
   const tools = cfg.tools;
   const searchEnabled = tools?.web?.search?.enabled;
   const fetchEnabled = tools?.web?.fetch?.enabled;
   const hasSearchEnabled = typeof searchEnabled === "boolean";
   const hasFetchEnabled = typeof fetchEnabled === "boolean";
 
+  // AIOps default stance:
+  // - read-only diagnostics should run without approvals
+  // - mutating actions must require explicit approval
+  // - keep non-essential tools disabled by default
   const enforcedDeny = [
-    "exec",
-    "process",
     "gateway",
     "message",
     "sessions_send",
@@ -365,10 +371,31 @@ export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig 
     "nodes",
   ];
   const existingDeny = Array.isArray(tools?.deny) ? tools?.deny : [];
-  const nextDeny = Array.from(new Set([...existingDeny, ...enforcedDeny]));
-  const denyChanged = nextDeny.length !== existingDeny.length;
+  // Historical AIOps defaults denied exec/process entirely; keep installs safe while
+  // enabling propose+approve+execute workflows by removing those denies.
+  const filteredDeny = existingDeny.filter((entry) => entry !== "exec" && entry !== "process");
+  const nextDeny = Array.from(new Set([...filteredDeny, ...enforcedDeny]));
+  const denyChanged = nextDeny.join("|") !== existingDeny.join("|");
 
-  if (hasSearchEnabled && hasFetchEnabled && !denyChanged) {
+  const exec = tools?.exec ?? {};
+  let execChanged = false;
+  const nextExec = { ...exec };
+  if (nextExec.host === undefined) {
+    nextExec.host = "gateway";
+    execChanged = true;
+  }
+  if (nextExec.security === undefined) {
+    nextExec.security = "allowlist";
+    execChanged = true;
+  }
+  // Use on-miss so allowlisted/safeBins read-only diagnostics run without approvals.
+  // Mutating kubectl verbs are still approval-gated by the exec tool itself.
+  if (nextExec.ask === undefined || nextExec.ask === "always") {
+    nextExec.ask = "on-miss";
+    execChanged = true;
+  }
+
+  if (hasSearchEnabled && hasFetchEnabled && !denyChanged && !execChanged) {
     return cfg;
   }
 
@@ -386,6 +413,7 @@ export function applyAIOpsSecurityDefaults(cfg: OpenClawConfig): OpenClawConfig 
     tools: {
       ...tools,
       deny: nextDeny,
+      exec: execChanged ? nextExec : exec,
       web: {
         ...tools?.web,
         search: nextSearch,

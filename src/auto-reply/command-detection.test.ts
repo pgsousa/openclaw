@@ -6,8 +6,8 @@ describe("hasControlCommand plain text aliases", () => {
     expect(hasControlCommand("fix OpenClawSyntheticOOM-1771261103")).toBe(true);
   });
 
-  it("does not treat ambiguous fix text as control command", () => {
-    expect(hasControlCommand("fix it")).toBe(false);
+  it("treats ambiguous fix text as a control command attempt", () => {
+    expect(hasControlCommand("fix it")).toBe(true);
   });
 
   it("detects plain approve command with approval id", () => {

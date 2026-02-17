@@ -234,8 +234,41 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.commandBody).toContain(
       "[Operator remediation directive for OpenClawPodOOMKilled]",
     );
+    expect(call?.commandBody).toContain("use a random UUID v4");
     expect(call?.commandBody).toContain(
       "Only request approval using a real runtime exec approval id",
     );
+  });
+
+  it("injects operator override directive for 'faz antes assim' phrasing", async () => {
+    const overrideCommand = "kubectl -n oom-test scale deployment/oom-demo --replicas=0";
+    const result = await runPreparedReply(
+      baseParams({
+        isNewSession: false,
+        ctx: {
+          Body: `faz antes assim: ${overrideCommand}`,
+          RawBody: `faz antes assim: ${overrideCommand}`,
+          CommandBody: `faz antes assim: ${overrideCommand}`,
+          OriginatingChannel: "slack",
+          OriginatingTo: "C123",
+          ChatType: "group",
+        },
+        sessionCtx: {
+          Body: `faz antes assim: ${overrideCommand}`,
+          BodyStripped: `faz antes assim: ${overrideCommand}`,
+          Provider: "slack",
+          ChatType: "group",
+          OriginatingChannel: "slack",
+          OriginatingTo: "C123",
+        },
+      }),
+    );
+
+    expect(result).toEqual({ text: "ok" });
+    const call = vi.mocked(runReplyAgent).mock.calls[0]?.[0];
+    expect(call?.commandBody).toContain("[Operator override instruction]");
+    expect(call?.commandBody).toContain(overrideCommand);
+    expect(call?.followupRun.prompt).toContain("[Operator override instruction]");
+    expect(call?.followupRun.prompt).toContain(overrideCommand);
   });
 });

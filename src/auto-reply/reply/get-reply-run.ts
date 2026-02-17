@@ -64,6 +64,26 @@ function extractDeterministicFixAlertId(commandBodyNormalized: string): string |
   return alertId;
 }
 
+function extractOperatorOverrideCommand(rawBody: string): string | undefined {
+  const trimmed = rawBody.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const patterns = [
+    /^\/?override\s+([\s\S]+)$/i,
+    /^(?:do this instead|run this instead|instead use|instead run|faz antes assim)\s*:?\s*([\s\S]+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    const candidate = match?.[1]?.replace(/\r/g, "").trim();
+    if (!candidate) {
+      continue;
+    }
+    return candidate.length > 1200 ? candidate.slice(0, 1200).trim() : candidate;
+  }
+  return undefined;
+}
+
 function buildFixContinuationDirective(alertId: string): string {
   return [
     `[Operator remediation directive for ${alertId}]`,
@@ -71,9 +91,23 @@ function buildFixContinuationDirective(alertId: string): string {
     "Use only observed alert/thread fields; do not invent identifiers.",
     "If thread starter/context already includes namespace/pod/container/reason, treat those as present and do not mark them unknown.",
     "Do not stop at generic diagnostics when namespace/pod/container are already present.",
+    "When presenting a planned action id, use a random UUID v4 (lowercase 8-4-4-4-12).",
     "Never invent pseudo approval ids (for example fix-OpenClaw...-1, FIX-1, option numbers).",
+    "Never use sequential action ids like oomfix-1 or option-1.",
     "Only request approval using a real runtime exec approval id: approve <id> [allow-once|allow-always|deny].",
     "Propose one concrete mutating command with impact/risk, wait for approval, then continue with verification and next action.",
+  ].join("\n");
+}
+
+function buildOperatorOverrideDirective(command: string): string {
+  return [
+    "[Operator override instruction]",
+    "The operator provided this preferred command override:",
+    "```sh",
+    command,
+    "```",
+    "Treat this as the preferred next mutating action candidate unless it is unsafe/invalid.",
+    "Before execution, restate this exact command with impact/risk and wait for approval.",
   ].join("\n");
 }
 
@@ -225,6 +259,10 @@ export async function runPreparedReply(
   const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
   // Use CommandBody/RawBody for bare reset detection (clean message without structural context).
   const rawBodyTrimmed = (ctx.CommandBody ?? ctx.RawBody ?? ctx.Body ?? "").trim();
+  const operatorOverrideCommand = extractOperatorOverrideCommand(rawBodyTrimmed);
+  const operatorOverrideDirective = operatorOverrideCommand
+    ? buildOperatorOverrideDirective(operatorOverrideCommand)
+    : undefined;
   const baseBodyTrimmedRaw = baseBody.trim();
   if (
     allowTextCommands &&
@@ -331,6 +369,11 @@ export async function runPreparedReply(
       .filter(Boolean)
       .join("\n\n");
   }
+  if (operatorOverrideDirective) {
+    prefixedCommandBody = [prefixedCommandBody, operatorOverrideDirective]
+      .filter(Boolean)
+      .join("\n\n");
+  }
   if (resolvedThinkLevel === "xhigh" && !supportsXHighThinking(provider, model)) {
     const explicitThink = directives.hasThinkDirective && directives.thinkLevel !== undefined;
     if (explicitThink) {
@@ -379,7 +422,12 @@ export async function runPreparedReply(
     sessionEntry,
     resolveSessionFilePathOptions({ agentId, storePath }),
   );
-  const queueBodyBase = [threadContextNote, effectiveBaseBody, deterministicFixDirective]
+  const queueBodyBase = [
+    threadContextNote,
+    effectiveBaseBody,
+    deterministicFixDirective,
+    operatorOverrideDirective,
+  ]
     .filter(Boolean)
     .join("\n\n");
   const queuedBody = mediaNote
@@ -395,7 +443,11 @@ export async function runPreparedReply(
   const isDeterministicPriorityCommand = isDeterministicFixOrApprovalCommand(
     command.commandBodyNormalized,
   );
-  if (isDeterministicPriorityCommand && resolvedQueue.mode !== "interrupt") {
+  const isOperatorOverridePriority = Boolean(operatorOverrideDirective);
+  if (
+    (isDeterministicPriorityCommand || isOperatorOverridePriority) &&
+    resolvedQueue.mode !== "interrupt"
+  ) {
     // Deterministic operator commands (fix/approve) should not be delayed by backlog.
     resolvedQueue.mode = "interrupt";
     resolvedQueue.debounceMs = 0;
@@ -405,9 +457,9 @@ export async function runPreparedReply(
   if (resolvedQueue.mode === "interrupt") {
     const cleared = laneSize > 0 ? clearCommandLane(sessionLaneKey) : 0;
     const aborted = abortEmbeddedPiRun(sessionIdFinal);
-    if (cleared > 0 || aborted || isDeterministicPriorityCommand) {
+    if (cleared > 0 || aborted || isDeterministicPriorityCommand || isOperatorOverridePriority) {
       logVerbose(
-        `Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted}, deterministic=${isDeterministicPriorityCommand})`,
+        `Interrupting ${sessionLaneKey} (cleared ${cleared}, aborted=${aborted}, deterministic=${isDeterministicPriorityCommand}, override=${isOperatorOverridePriority})`,
       );
     }
   }

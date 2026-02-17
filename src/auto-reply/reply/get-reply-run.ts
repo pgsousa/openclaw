@@ -69,7 +69,10 @@ function buildFixContinuationDirective(alertId: string): string {
     `[Operator remediation directive for ${alertId}]`,
     `Run remediation workflow for alert id ${alertId} until mitigation or a hard blocker is reached.`,
     "Use only observed alert/thread fields; do not invent identifiers.",
+    "If thread starter/context already includes namespace/pod/container/reason, treat those as present and do not mark them unknown.",
     "Do not stop at generic diagnostics when namespace/pod/container are already present.",
+    "Never invent pseudo approval ids (for example fix-OpenClaw...-1, FIX-1, option numbers).",
+    "Only request approval using a real runtime exec approval id: approve <id> [allow-once|allow-always|deny].",
     "Propose one concrete mutating command with impact/risk, wait for approval, then continue with verification and next action.",
   ].join("\n");
 }
@@ -185,6 +188,14 @@ export async function runPreparedReply(
   const isGroupChat = sessionCtx.ChatType === "group";
   const wasMentioned = ctx.WasMentioned === true;
   const isHeartbeat = opts?.isHeartbeat === true;
+  const deterministicFixAlertId = extractDeterministicFixAlertId(command.commandBodyNormalized);
+  const deterministicFixDirective = deterministicFixAlertId
+    ? buildFixContinuationDirective(deterministicFixAlertId)
+    : undefined;
+  const includeThreadStarterContext = isNewSession || Boolean(deterministicFixAlertId);
+  const inboundContextForPrompt = includeThreadStarterContext
+    ? sessionCtx
+    : { ...sessionCtx, ThreadStarterBody: undefined };
   const typingMode = resolveTypingMode({
     configured: sessionCfg?.typingMode ?? agentCfg?.typingMode,
     isGroupChat,
@@ -207,9 +218,7 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
-  const inboundMetaPrompt = buildInboundMetaSystemPrompt(
-    isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
-  );
+  const inboundMetaPrompt = buildInboundMetaSystemPrompt(inboundContextForPrompt);
   const extraSystemPrompt = [inboundMetaPrompt, groupChatContext, groupIntro, groupSystemPrompt]
     .filter(Boolean)
     .join("\n\n");
@@ -231,16 +240,12 @@ export async function runPreparedReply(
     isNewSession &&
     ((baseBodyTrimmedRaw.length === 0 && rawBodyTrimmed.length > 0) || isBareNewOrReset);
   const baseBodyFinal = isBareSessionReset ? BARE_SESSION_RESET_PROMPT : baseBody;
-  const inboundUserContext = buildInboundUserContextPrefix(
-    isNewSession
-      ? {
-          ...sessionCtx,
-          ...(sessionCtx.ThreadHistoryBody?.trim()
-            ? { InboundHistory: undefined, ThreadStarterBody: undefined }
-            : {}),
-        }
-      : { ...sessionCtx, ThreadStarterBody: undefined },
-  );
+  const inboundUserContext = buildInboundUserContextPrefix({
+    ...inboundContextForPrompt,
+    ...(inboundContextForPrompt.ThreadHistoryBody?.trim()
+      ? { InboundHistory: undefined, ThreadStarterBody: undefined }
+      : {}),
+  });
   const baseBodyForPrompt = isBareSessionReset
     ? baseBodyFinal
     : [inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
@@ -283,9 +288,9 @@ export async function runPreparedReply(
   const threadStarterBody = ctx.ThreadStarterBody?.trim();
   const threadHistoryBody = ctx.ThreadHistoryBody?.trim();
   const threadContextNote =
-    isNewSession && threadHistoryBody
+    includeThreadStarterContext && threadHistoryBody
       ? `[Thread history - for context]\n${threadHistoryBody}`
-      : isNewSession && threadStarterBody
+      : includeThreadStarterContext && threadStarterBody
         ? `[Thread starter - for context]\n${threadStarterBody}`
         : undefined;
   const skillResult = await ensureSkillSnapshot({
@@ -321,10 +326,6 @@ export async function runPreparedReply(
   if (!resolvedThinkLevel) {
     resolvedThinkLevel = await modelState.resolveDefaultThinkingLevel();
   }
-  const deterministicFixAlertId = extractDeterministicFixAlertId(command.commandBodyNormalized);
-  const deterministicFixDirective = deterministicFixAlertId
-    ? buildFixContinuationDirective(deterministicFixAlertId)
-    : undefined;
   if (deterministicFixDirective) {
     prefixedCommandBody = [prefixedCommandBody, deterministicFixDirective]
       .filter(Boolean)

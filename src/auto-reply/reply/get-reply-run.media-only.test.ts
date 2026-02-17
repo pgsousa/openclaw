@@ -38,6 +38,7 @@ vi.mock("../../utils/provider-utils.js", () => ({
 
 vi.mock("../command-detection.js", () => ({
   hasControlCommand: vi.fn().mockReturnValue(false),
+  isDeterministicFixOrApprovalCommand: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("./agent-runner.js", () => ({
@@ -115,6 +116,7 @@ function baseParams(
       abortKey: "session-key",
       ownerList: [],
       senderIsOwner: false,
+      commandBodyNormalized: "/status",
     } as never,
     commandSource: "",
     allowTextCommands: true,
@@ -189,5 +191,51 @@ describe("runPreparedReply media-only handling", () => {
       text: "I didn't receive any text in your message. Please resend or add a caption.",
     });
     expect(vi.mocked(runReplyAgent)).not.toHaveBeenCalled();
+  });
+
+  it("preserves thread starter context for deterministic fix commands on existing sessions", async () => {
+    const result = await runPreparedReply(
+      baseParams({
+        isNewSession: false,
+        ctx: {
+          Body: "fix OpenClawPodOOMKilled",
+          RawBody: "fix OpenClawPodOOMKilled",
+          CommandBody: "fix OpenClawPodOOMKilled",
+          ThreadStarterBody:
+            "ALERT FIRING: OpenClawPodOOMKilled | severity=critical | namespace=oom-test | pod=oom-demo-d79ffcdf4-gcz5h | container=stress | reason=OOMKilled",
+          OriginatingChannel: "slack",
+          OriginatingTo: "C123",
+          ChatType: "group",
+        },
+        sessionCtx: {
+          Body: "fix OpenClawPodOOMKilled",
+          BodyStripped: "fix OpenClawPodOOMKilled",
+          ThreadStarterBody:
+            "ALERT FIRING: OpenClawPodOOMKilled | severity=critical | namespace=oom-test | pod=oom-demo-d79ffcdf4-gcz5h | container=stress | reason=OOMKilled",
+          Provider: "slack",
+          ChatType: "group",
+          OriginatingChannel: "slack",
+          OriginatingTo: "C123",
+        },
+        command: {
+          isAuthorizedSender: true,
+          abortKey: "session-key",
+          ownerList: [],
+          senderIsOwner: false,
+          commandBodyNormalized: "fix OpenClawPodOOMKilled",
+        } as never,
+      }),
+    );
+
+    expect(result).toEqual({ text: "ok" });
+    const call = vi.mocked(runReplyAgent).mock.calls[0]?.[0];
+    expect(call?.commandBody).toContain("[Thread starter - for context]");
+    expect(call?.commandBody).toContain("namespace=oom-test");
+    expect(call?.commandBody).toContain(
+      "[Operator remediation directive for OpenClawPodOOMKilled]",
+    );
+    expect(call?.commandBody).toContain(
+      "Only request approval using a real runtime exec approval id",
+    );
   });
 });

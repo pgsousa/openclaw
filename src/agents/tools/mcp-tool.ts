@@ -127,6 +127,21 @@ function resolveMcpAllowlists(options: McpToolOptions): {
   };
 }
 
+function normalizeToolReference(tool: string): string {
+  const trimmed = tool.trim();
+  if (!trimmed || trimmed.includes('.')) {
+    return trimmed;
+  }
+  const aliasMap: Record<string, string> = {
+    kubectl_get: 'kubernetes.kubectl_get',
+    kubectl_describe: 'kubernetes.kubectl_describe',
+    kubectl_logs: 'kubernetes.kubectl_logs',
+    query: 'prometheus.query',
+    search: 'opensearch.search',
+  };
+  return aliasMap[trimmed] ?? trimmed;
+}
+
 function parseToolReference(tool: string): { full: string; server: string } {
   const trimmed = tool.trim();
   const firstDot = trimmed.indexOf(".");
@@ -292,6 +307,31 @@ function resolveEffectiveConfigPath(value: string | undefined): string | undefin
   return existsSync(defaultPath) ? defaultPath : undefined;
 }
 
+
+function normalizeCallArgsJson(toolFull: string, argsJson: string | undefined): string | undefined {
+  if (!argsJson || !argsJson.trim()) {
+    return argsJson;
+  }
+  try {
+    const parsed = JSON.parse(argsJson) as Record<string, unknown>;
+    if (toolFull === "kubernetes.kubectl_logs") {
+      if (typeof parsed.resourceType !== "string" || !parsed.resourceType.trim()) {
+        parsed.resourceType = "pod";
+      }
+    }
+    if (toolFull === "kubernetes.kubectl_get") {
+      if (typeof parsed.resourceType !== "string" || !parsed.resourceType.trim()) {
+        if (typeof parsed.name === "string" && parsed.name.trim()) {
+          parsed.resourceType = "pods";
+        }
+      }
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return argsJson;
+  }
+}
+
 export function createMcpTool(options: McpToolOptions = {}): AnyAgentTool {
   return {
     label: "MCP",
@@ -318,13 +358,15 @@ export function createMcpTool(options: McpToolOptions = {}): AnyAgentTool {
         commandArgs = [...baseArgs, "list", server, "--schema", "--output", output];
       } else if (action === "call") {
         const tool = readStringParam(params, "tool", { required: true });
-        const parsedTool = parseToolReference(tool);
+        const normalizedTool = normalizeToolReference(tool);
+        const parsedTool = parseToolReference(normalizedTool);
         ensureServerAllowed(parsedTool.server, allowlists.allowServers);
         ensureToolAllowed(parsedTool.full, allowlists.allowTools);
         const argsJson = readStringParam(params, "argsJson");
+        const normalizedArgsJson = normalizeCallArgsJson(parsedTool.full, argsJson);
         commandArgs = [...baseArgs, "call", parsedTool.full, "--output", output];
-        if (argsJson) {
-          commandArgs.push("--args", argsJson);
+        if (normalizedArgsJson) {
+          commandArgs.push("--args", normalizedArgsJson);
         }
       } else {
         throw new Error(`Unknown action: ${action}`);

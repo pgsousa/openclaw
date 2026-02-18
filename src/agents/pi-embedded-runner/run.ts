@@ -219,7 +219,7 @@ export async function runEmbeddedPiAgent(
               "Only handle topics related to AIOps, Kubernetes, Linux, Prometheus, OpenSearch, Ceph, Jira operations, and Slack ops workflows.",
               "If a request is outside this scope, refuse and ask the user to reframe it in-scope.",
               "Preferred context sources for investigations: infrastructure docs, Jira tickets, Slack messages/channels, and public documentation websites.",
-              'For alert triage, build an internal JSON object with this schema before replying: {"observed_facts":[string],"interpretation":string,"verification_commands":[string],"mutating_action":{"required":boolean,"command":string|null,"impact":string|null,"risk":string|null}}.',
+              "For alert triage, never output raw JSON objects. Respond in plain text with clear headings and bullet points.",
               'Only include facts present in the alert/thread/tool output. Do not invent namespace/pod/container/node names; if missing, say "<not present>".',
               "If a mutating action is needed, do not execute immediately. First show exact command + impact + risk, then wait for approval.",
               "Deterministic command protocol: if user asks remediation, require `fix <alert-id>` and refuse ambiguous forms like `fix it`.",

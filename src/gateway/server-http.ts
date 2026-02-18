@@ -154,11 +154,22 @@ const AIOPS_READONLY_ALERT_SOLVER_DIRECTIVE = [
   "1) Incident Summary",
   "2) Evidence (facts + sources)",
   "3) Diagnosis (hypothesis + confidence)",
+  "3.1) RC scoring (deterministic)",
+  "- Compute RC_SCORE in [0.0, 1.0] using only observed evidence from tools (no guessing).",
+  "- Evidence weights (sum capped at 1.0): alert labels=0.20, k8s pod status=0.40, k8s events=0.20, Prometheus metrics=0.20, logs signature (errors/panic/OOM text)=0.10.",
+  "- Independent sources: {k8s status, k8s events, Prometheus, logs}.",
+  "- RC_STATUS rules (fail-closed): CONFIRMED only if RC_SCORE>=0.85 AND at least 2 independent sources support the same cause. SUSPECTED if RC_SCORE in [0.60,0.85) OR only 1 independent source. UNKNOWN otherwise.",
+  "- Explicitly print: RC_SCORE=..., RC_STATUS=..., SOURCES_USED=[...].",
   "4) Recommendation (mitigation + permanent fix)",
   "5) Rollback",
   "6) Verification (exactly 3 post-change checks)",
   "7) Runbook Script (copy/paste; DO NOT execute)",
+  "7.5) TL;DR (exactly 2 bullets: (1) Cause (2) Next step; plain language; include namespace/pod/container)",
   "8) Salesforce CR Draft (integration pending; draft only)",
+  "CR Draft rules:",
+  "- CR Draft must be FINAL CHANGE ONLY (no diagnostics steps inside the CR).",
+  "- Only produce a CR Draft if root cause is CONFIRMED with evidence; otherwise write: \"CR Draft: NOT READY (root cause not confirmed)\" and list exactly what evidence is missing.",
+  "- Use the TL;DR section for human-friendly summary; keep CR fields precise and actionable.",
 ].join("\n");
 
 function isCanvasPath(pathname: string): boolean {

@@ -174,6 +174,8 @@ const AIOPS_READONLY_ALERT_SOLVER_DIRECTIVE = [
   "3) Diagnosis (hypothesis + confidence)",
   "3.1) RC scoring (deterministic)",
   "3.2) Confirmed vs Assumed (mandatory): explicitly list confirmed facts vs assumptions in 2 bullets max each.",
+  "- For any connectivity hypothesis, include the exact linux_ro evidence lines used (dns_lookup + one host/network check).",
+  "- For connectivity alerts, include one confirmed host-level fact from linux_ro in Confirmed section.",
   "- Compute RC_SCORE in [0.0, 1.0] using only observed evidence from tools (no guessing).",
   "- Evidence weights (sum capped at 1.0): alert labels=0.20, k8s pod status=0.40, k8s events=0.20, Prometheus metrics=0.20, logs signature (errors/panic/OOM text)=0.10.",
   "- Independent sources: {k8s status, k8s events, Prometheus, logs}.",

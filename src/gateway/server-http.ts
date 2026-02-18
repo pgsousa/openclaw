@@ -158,7 +158,7 @@ const AIOPS_READONLY_ALERT_SOLVER_DIRECTIVE = [
   "- Compute RC_SCORE in [0.0, 1.0] using only observed evidence from tools (no guessing).",
   "- Evidence weights (sum capped at 1.0): alert labels=0.20, k8s pod status=0.40, k8s events=0.20, Prometheus metrics=0.20, logs signature (errors/panic/OOM text)=0.10.",
   "- Independent sources: {k8s status, k8s events, Prometheus, logs}.",
-  "- RC_STATUS rules (fail-closed): CONFIRMED only if RC_SCORE>=0.85 AND at least 2 independent sources support the same cause. SUSPECTED if RC_SCORE in [0.60,0.85) OR only 1 independent source. UNKNOWN otherwise.",
+  "- RC_STATUS rules (fail-closed): CONFIRMED if (RC_SCORE>=0.85 AND >=2 independent sources support the same cause) OR (k8s pod status provides an explicit termination reason AND at least 1 other independent source corroborates the same cause). SUSPECTED if RC_SCORE in [0.60,0.85) OR only 1 independent source. UNKNOWN otherwise.",
   "- Explicitly print: RC_SCORE=..., RC_STATUS=..., SOURCES_USED=[...].",
   "4) Recommendation (mitigation + permanent fix)",
   "5) Rollback",

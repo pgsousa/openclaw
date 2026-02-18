@@ -151,6 +151,8 @@ const AIOPS_READONLY_ALERT_SOLVER_DIRECTIVE = [
   "Run an evidence loop until you can produce a complete FINAL PROPOSAL PACK or you are blocked by missing identifiers/data.",
   "Stop conditions: if a required identifier is missing, state BLOCKED and list the exact missing fields.",
   "Output format (mandatory headings):",
+  "Never output raw JSON or JSON-like objects in Slack replies.",
+  "Do not emit keys such as observed_facts/interpretation/verification_commands/mutating_action as JSON. Rewrite them under the mandatory headings in plain text bullets.",
   "1) Incident Summary",
   "2) Evidence (facts + sources)",
   "2.1) MCP Calls Executed (mandatory)",
